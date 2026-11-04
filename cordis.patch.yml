@@ -1,0 +1,25 @@
+# 把本插件插进 DSH profile 的配置树（bundle 挂载声明）。
+#
+# 想改 ComfyUI 地址 / 默认模型等，不必改这里：直接改
+#   ~/.dsh-comfyui-image/config.json
+# 或者在 profile 的 cordis.patch.yml 里给这条 entry 加 config：
+#   - id: dsh-comfyui-image
+#     name: dsh-comfyui-image
+#     config:
+#       baseUrl: 'http://127.0.0.1:8188'
+#       checkpoint: 'sd_xl_base_1.0.safetensors'
+#       # 视频（generate_video）—— 不填就按名字自动挑
+#       videoModel: 'Wan2.2-TI2V-5B-Q4_K_M.gguf'
+#       videoVae: 'Wan2.2_VAE.safetensors'
+#       videoSeconds: 2
+#       # 说话视频（generate_talking_video）—— 只改路径才需要写
+#       ttsEngine: 'indextts'                    # indextts（克隆音色）/ edge（现成音色）
+#       ttsSpkAudioPrompt: 'D:/Tools/IndexTTS/ref_audio_voice.wav'   # 音色由这段参考音频决定
+#       indexttsDir: 'D:/Tools/IndexTTS'
+#       indexttsPython: 'D:/Tools/IndexTTS/.venv/Scripts/python.exe'
+#       musetalkDir: 'D:/Tools/MuseTalk'
+#       musetalkPython: 'D:/Tools/MuseTalk/venv/Scripts/python.exe'
+#       ffmpegBin: 'C:/FFmpeg/bin'
+- insert:
+    - id: dsh-comfyui-image
+      name: dsh-comfyui-image

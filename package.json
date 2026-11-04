@@ -1,0 +1,90 @@
+{
+  "name": "dsh-comfyui-image",
+  "version": "0.5.0",
+  "description": "DSH 图片、视频、说话视频与纯配音生成插件：本地 ComfyUI 后端，对外暴露四个工具——generate_image（文生图 / 图生图 / 局部重绘 / 背景移除）、generate_video（文生视频 / 图生视频）、generate_talking_video（台词 → TTS → 说话画面 → MuseTalk 对口型）与 generate_audio（台词 → 16kHz wav，只配音不碰画面）。A DSH image / video / talking-video / audio generation plugin backed by a local ComfyUI server.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "scripts",
+    "docs",
+    "tsconfig.json",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "icon.svg"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/run-tests.mjs",
+    "doctor": "node scripts/doctor.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "comfyui",
+    "image-generation",
+    "text2img",
+    "img2img",
+    "inpaint",
+    "remove-background",
+    "stable-diffusion",
+    "图片生成",
+    "video-generation",
+    "text2video",
+    "img2video",
+    "wan2.2",
+    "talking-video",
+    "lipsync",
+    "tts",
+    "musetalk",
+    "indextts",
+    "语音合成",
+    "口型同步"
+  ],
+  "author": "dsh-comfyui-image contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liren2272-hue/dsh-comfyui-image.git"
+  },
+  "bugs": {
+    "url": "https://github.com/liren2272-hue/dsh-comfyui-image/issues"
+  },
+  "homepage": "https://github.com/liren2272-hue/dsh-comfyui-image#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "meta": {
+    "title": "ComfyUI 图片 / 视频 / 说话视频",
+    "description": "给 DSH 补上图片与视频生成能力：用本地 ComfyUI 作图与出片，并可用 generate_talking_video 把一句台词变成对口型的人像说话视频（IndexTTS-2 克隆音色 + Wan2.2 说话画面 + MuseTalk 1.5 对口型）。"
+  },
+  "icon": "./icon.svg",
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}
