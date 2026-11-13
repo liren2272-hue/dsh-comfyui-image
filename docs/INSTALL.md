@@ -234,7 +234,7 @@ node -e "import('./lib/index.js').then(m => {
 |---|---|---|
 | 1 | `npm run doctor`（在插件目录） | 打印生效配置 + ComfyUI 版本 + 四种模式的可用性；退出码 `0` |
 | 2 | DSH 设置 → 插件列表 | 能看到 `dsh-comfyui-image`（显示名「ComfyUI 图片生成」），开关可用 |
-| 3 | 对 Agent 说「用 generate_image 生成一张测试图」 | 模型能看到并调用这个工具，返回 `✅ 出图成功` + 一行绝对路径 |
+| 3 | 对 Agent 说「用 comfyui_generate_image 生成一张测试图」 | 模型能看到并调用这个工具，返回 `✅ 出图成功` + 一行绝对路径 |
 | 4 | 点/打开返回的路径 | 图片存在，旁边还有一个同名 `.json` 元数据文件 |
 
 任何一步不对，先看 [FAQ.md](./FAQ.md)；再不行就带上 `npm run doctor --json` 的输出提 issue。

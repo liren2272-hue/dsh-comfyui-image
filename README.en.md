@@ -14,10 +14,10 @@ the backend talks to a **local ComfyUI** plus your machine's TTS and lip-sync to
 
 | Tool | What it does |
 |---|---|
-| `generate_image` | Text-to-image, image-to-image, inpainting and background removal in one |
-| `generate_video` | Text-to-video and image-to-video (Wan2.2 TI2V-5B) |
-| `generate_talking_video` | Script → TTS → speaking shot → MuseTalk lip-sync |
-| `generate_audio` | Script → 16 kHz wav, **audio only, no picture** |
+| `comfyui_generate_image` | Text-to-image, image-to-image, inpainting and background removal in one |
+| `comfyui_generate_video` | Text-to-video and image-to-video (Wan2.2 TI2V-5B) |
+| `comfyui_generate_talking_video` | Script → TTS → speaking shot → MuseTalk lip-sync |
+| `comfyui_generate_audio` | Script → 16 kHz wav, **audio only, no picture** |
 
 It depends on no external commercial API and has **zero third-party runtime dependencies**
 (it only uses Node's built-in `fetch` / `FormData`).
@@ -67,7 +67,7 @@ plus the machine's **TTS / lip-sync toolchain**:
 
 ## Features at a Glance
 
-### `generate_image` — four image modes
+### `comfyui_generate_image` — four image modes
 
 | Mode `mode` | Input | What it does | Notes |
 |---|---|---|---|
@@ -76,7 +76,7 @@ plus the machine's **TTS / lip-sync toolchain**:
 | `inpaint` | `prompt` + `input_image` + `mask_image` | Inpainting | The mask's **white/bright area = the region to repaint**; `strength` defaults to 1.0 |
 | `remove_background` | `input_image` | Background removal | **Requires a third-party background-removal node in ComfyUI** (see below) |
 
-### `generate_video` — text-to-video / image-to-video
+### `comfyui_generate_video` — text-to-video / image-to-video
 
 | Mode `mode` | Input | What it does |
 |---|---|---|
@@ -89,7 +89,7 @@ The video model is auto-picked from what your ComfyUI actually has (Wan2.2 TI2V-
 is the *requested* duration — read the returned `frames / fps` for the real one. 2 s at 832×480 / 30 steps
 takes about 3.5 minutes here. See [docs/PARAMS.md](./docs/PARAMS.md).
 
-### `generate_talking_video` — script → speech → lip-sync
+### `comfyui_generate_talking_video` — script → speech → lip-sync
 
 | Mode `mode` | Input | What it does |
 |---|---|---|
@@ -102,7 +102,7 @@ lip-sync (MuseTalk 1.5)**. The voice is determined entirely by the 3–15 s refe
 `spk_audio_prompt` points at; `emo_vector` / `emo_alpha` / `emo_audio_prompt` add emotion.
 Full write-up (why three stages, the pitfalls, the limits) in [docs/TALKING.md](./docs/TALKING.md).
 
-### `generate_audio` — audio only
+### `comfyui_generate_audio` — audio only
 
 One line of script → one 16 kHz mono wav, **no picture involved**. Handy for "tune the voice and tone
 first, then lip-sync it" iteration. See [docs/AUDIO.md](./docs/AUDIO.md).
@@ -128,10 +128,10 @@ The four tools have **cumulative** requirements — if you only use images, only
 
 | Tool | Extra requirements |
 |---|---|
-| `generate_image` | A checkpoint in `models/checkpoints/` |
-| `generate_video` | Wan2.2 TI2V-5B (in `models/diffusion_models/` or `unet/`; GGUF works) + `umt5_xxl` text encoder + `Wan2.2_VAE` + a ComfyUI build with the `Wan22ImageToVideoLatent` / `ModelSamplingSD3` / `CreateVideo` / `SaveVideo` nodes |
-| `generate_talking_video` | An IndexTTS-2 checkout plus venv and a reference clip; a MuseTalk 1.5 checkout plus venv; `ffmpeg` / `ffprobe` (or point `ffmpegBin` at them) |
-| `generate_audio` | Only the TTS part (no ComfyUI, no MuseTalk) |
+| `comfyui_generate_image` | A checkpoint in `models/checkpoints/` |
+| `comfyui_generate_video` | Wan2.2 TI2V-5B (in `models/diffusion_models/` or `unet/`; GGUF works) + `umt5_xxl` text encoder + `Wan2.2_VAE` + a ComfyUI build with the `Wan22ImageToVideoLatent` / `ModelSamplingSD3` / `CreateVideo` / `SaveVideo` nodes |
+| `comfyui_generate_talking_video` | An IndexTTS-2 checkout plus venv and a reference clip; a MuseTalk 1.5 checkout plus venv; `ffmpeg` / `ffprobe` (or point `ffmpegBin` at them) |
+| `comfyui_generate_audio` | Only the TTS part (no ComfyUI, no MuseTalk) |
 
 > Background removal is the **only** image feature that needs extra nodes. Install **any one** of these
 > (the plugin picks the best available automatically, in this order):
@@ -235,7 +235,7 @@ Once installed:
 
 1. **It appears in the plugin list**: the entry name is `dsh-comfyui-image` (display name "ComfyUI Image Generation");
 2. **It can be toggled**: it is an ordinary bundle entry — toggle it with the plugin manager, or write `disabled: true` in the profile's patch;
-3. **The Agent can see the tool**: an extra `generate_image` shows up on the model side (this session's tool table already carries its full schema);
+3. **The Agent can see the tool**: an extra `comfyui_generate_image` shows up on the model side (this session's tool table already carries its full schema);
 4. **Whether this machine can actually generate images** — running a self-check is the least effort:
 
 ```bash

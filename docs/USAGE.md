@@ -170,11 +170,11 @@
 
 ## 7. 套路：批量出图
 
-V1 的 `generate_image` **一次出一张**（刻意如此：失败重试、进度反馈都简单）。
+V1 的 `comfyui_generate_image` **一次出一张**（刻意如此：失败重试、进度反馈都简单）。
 批量就让 Agent 循环调用——它天然会一次一个、逐个报错：
 
 ```text
-请用 generate_image 依次为「猫 / 狗 / 兔子」各出一张 512x512 的图，
+请用 comfyui_generate_image 依次为「猫 / 狗 / 兔子」各出一张 512x512 的图，
 都用 seed=42，输出到 D:/images/pets/
 ```
 
@@ -251,9 +251,9 @@ V1 的 `generate_image` **一次出一张**（刻意如此：失败重试、进�
 
 ---
 
-## 10. 只要配音：`generate_audio`
+## 10. 只要配音：`comfyui_generate_audio`
 
-不需要画面、只想要一条配音时，用 `generate_audio`——它**不连 ComfyUI**，只把台词过 TTS 落成 16kHz 单声道 wav：
+不需要画面、只想要一条配音时，用 `comfyui_generate_audio`——它**不连 ComfyUI**，只把台词过 TTS 落成 16kHz 单声道 wav：
 
 ```json
 { "script": "这是谁家的小孩？", "tts": "edge", "edge_voice": "zh-CN-XiaoyiNeural", "rate": "+30%" }

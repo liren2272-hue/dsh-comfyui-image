@@ -13,10 +13,10 @@
 
 | 工具 | 干什么 |
 |---|---|
-| `generate_image` | 文生图、图生图、局部重绘、背景移除四合一 |
-| `generate_video` | 文生视频、图生视频（Wan2.2 TI2V-5B） |
-| `generate_talking_video` | 台词 → TTS → 说话画面 → MuseTalk 对口型 |
-| `generate_audio` | 台词 → 16kHz wav，**只配音不碰画面** |
+| `comfyui_generate_image` | 文生图、图生图、局部重绘、背景移除四合一 |
+| `comfyui_generate_video` | 文生视频、图生视频（Wan2.2 TI2V-5B） |
+| `comfyui_generate_talking_video` | 台词 → TTS → 说话画面 → MuseTalk 对口型 |
+| `comfyui_generate_audio` | 台词 → 16kHz wav，**只配音不碰画面** |
 
 不依赖任何外部商业 API，运行时**零第三方依赖**（只用 Node 内置的 `fetch` / `FormData`）。
 
@@ -64,7 +64,7 @@ DSH 本身没有出图 / 出片 / 配音能力，而 Agent 又经常需要「画
 
 ## 功能一览
 
-### `generate_image` —— 四种图片模式
+### `comfyui_generate_image` —— 四种图片模式
 
 | 模式 `mode` | 输入 | 干什么 | 备注 |
 |---|---|---|---|
@@ -73,7 +73,7 @@ DSH 本身没有出图 / 出片 / 配音能力，而 Agent 又经常需要「画
 | `inpaint` | `prompt` + `input_image` + `mask_image` | 局部重绘 | 遮罩**白/亮区 = 要重绘的区域**；`strength` 默认 1.0 |
 | `remove_background` | `input_image` | 背景移除 | **需要 ComfyUI 装第三方去背节点**（见下） |
 
-### `generate_video` —— 文生视频 / 图生视频
+### `comfyui_generate_video` —— 文生视频 / 图生视频
 
 | 模式 `mode` | 输入 | 干什么 |
 |---|---|---|
@@ -85,7 +85,7 @@ DSH 本身没有出图 / 出片 / 配音能力，而 Agent 又经常需要「画
 不对齐末尾会糊），所以 `seconds` 是「期望时长」，真实时长看返回的 `frames / fps`。
 2 秒 832×480 30 步在本机约 3.5 分钟。细节见 [docs/PARAMS.md](./docs/PARAMS.md)。
 
-### `generate_talking_video` —— 台词 → 语音 → 口型
+### `comfyui_generate_talking_video` —— 台词 → 语音 → 口型
 
 | 模式 `mode` | 输入 | 干什么 |
 |---|---|---|
@@ -97,7 +97,7 @@ DSH 本身没有出图 / 出片 / 配音能力，而 Agent 又经常需要「画
 音色由 `spk_audio_prompt` 指向的一段 3~15 秒参考音频决定；`emo_vector` / `emo_alpha` / `emo_audio_prompt`
 可以加情绪。完整说明（含为什么必须分三段、踩过的坑、能力边界）见 [docs/TALKING.md](./docs/TALKING.md)。
 
-### `generate_audio` —— 只配音
+### `comfyui_generate_audio` —— 只配音
 
 一句台词 → 一个 16kHz 单声道 wav，**不碰画面**，几秒到几分钟。适合「先把音色和语气调好，
 再拿去对口型」这种迭代场景。见 [docs/AUDIO.md](./docs/AUDIO.md)。
@@ -123,10 +123,10 @@ DSH 本身没有出图 / 出片 / 配音能力，而 Agent 又经常需要「画
 
 | 工具 | 额外需要 |
 |---|---|
-| `generate_image` | 底模（`models/checkpoints/`） |
-| `generate_video` | Wan2.2 TI2V-5B（`models/diffusion_models/` 或 `unet/`，GGUF 也行）+ `umt5_xxl` 文本编码器 + `Wan2.2_VAE` + ComfyUI 带 `Wan22ImageToVideoLatent` / `ModelSamplingSD3` / `CreateVideo` / `SaveVideo` 四个节点 |
-| `generate_talking_video` | IndexTTS-2 仓库与 venv + 参考音频；MuseTalk 1.5 仓库与 venv；`ffmpeg` / `ffprobe`（或在 `ffmpegBin` 里指） |
-| `generate_audio` | 同 TTS 那一条（不需要 ComfyUI 与 MuseTalk） |
+| `comfyui_generate_image` | 底模（`models/checkpoints/`） |
+| `comfyui_generate_video` | Wan2.2 TI2V-5B（`models/diffusion_models/` 或 `unet/`，GGUF 也行）+ `umt5_xxl` 文本编码器 + `Wan2.2_VAE` + ComfyUI 带 `Wan22ImageToVideoLatent` / `ModelSamplingSD3` / `CreateVideo` / `SaveVideo` 四个节点 |
+| `comfyui_generate_talking_video` | IndexTTS-2 仓库与 venv + 参考音频；MuseTalk 1.5 仓库与 venv；`ffmpeg` / `ffprobe`（或在 `ffmpegBin` 里指） |
+| `comfyui_generate_audio` | 同 TTS 那一条（不需要 ComfyUI 与 MuseTalk） |
 
 > 背景移除是**唯一**需要额外节点的图片功能。装下面**任意一套**即可（插件按此顺序自动择优）：
 > `ComfyUI_essentials`（`RemBGSession+` → `ImageRemoveBackground+`）、`ComfyUI-BRIA_AI-RMBG`、
@@ -230,8 +230,8 @@ npm test             # 160 项测试，自带 mock ComfyUI，不需要真装 Com
 
 1. **插件列表里能看到它**：条目名 `dsh-comfyui-image`（显示名「ComfyUI 图片生成」）；
 2. **能开关**：它就是一个普通的 bundle 条目，用插件管理器开关，或在 profile 的 patch 里写 `disabled: true`；
-3. **Agent 能看到工具**：模型侧会多出 `generate_image` / `generate_video` /
-   `generate_talking_video` / `generate_audio` 四个（本会话的工具表里就有它们的完整 schema）；
+3. **Agent 能看到工具**：模型侧会多出 `comfyui_generate_image` / `comfyui_generate_video` /
+   `comfyui_generate_talking_video` / `comfyui_generate_audio` 四个（本会话的工具表里就有它们的完整 schema）；
 4. **本机能不能真出图**，跑一次自检最省事：
 
 ```bash
@@ -338,7 +338,7 @@ ComfyUI：http://127.0.0.1:8188（prompt_id=8f3c…）
 
 ## 工具参数速查
 
-### `generate_image`
+### `comfyui_generate_image`
 
 | 参数 | 类型 | 说明 |
 |---|---|---|
@@ -362,7 +362,7 @@ ComfyUI：http://127.0.0.1:8188（prompt_id=8f3c…）
 `cfg_scale` / `strength` / `model` / `sampler` / `scheduler` / `prompt_id` / `comfy_url` /
 `duration_ms` / `success` / `mode_inferred` / `metadata_path` / `notes` 与给模型看的 `text`。
 
-### `generate_video`
+### `comfyui_generate_video`
 
 | 参数 | 类型 | 说明 |
 |---|---|---|
@@ -382,7 +382,7 @@ ComfyUI：http://127.0.0.1:8188（prompt_id=8f3c…）
 `seed` / `steps` / `cfg_scale` / `shift` / `prompt` / `model` / `vae` / `duration_ms` / `success` /
 `notes` / `comfy_url` / `prompt_id` / `metadata_path` 与 `text`。
 
-### `generate_talking_video` / `generate_audio`
+### `comfyui_generate_talking_video` / `comfyui_generate_audio`
 
 两个工具共用同一套 TTS 参数：
 
@@ -399,7 +399,7 @@ ComfyUI：http://127.0.0.1:8188（prompt_id=8f3c…）
 | `edge_voice` / `rate` | string | `tts=edge` 时用；另有 `edge_pitch` / `edge_volume`（仅 audio 工具） |
 | `output_path` | string | 输出目录或文件路径 |
 
-`generate_talking_video` 另有 `input_image`（image2talking）/ `input_video`（video2talking）/
+`comfyui_generate_talking_video` 另有 `input_image`（image2talking）/ `input_video`（video2talking）/
 `prompt` / `negative_prompt` / `seconds` / `fps` / `width` / `height` / `seed` / `extra_options`。
 它的输出结构含 `path` / `files` / `mode` / `script` / `voice` / `tts` / `audio_seconds` /
 `video_seconds` / `fps` / `frames` / `width` / `height` / `seed` / `duration_ms` / `success` /

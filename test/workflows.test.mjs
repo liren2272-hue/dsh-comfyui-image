@@ -11,10 +11,12 @@ import path from 'node:path'
 import test from 'node:test'
 import {
   applyCustomWorkflow,
+  buildFluxText2Img,
   buildImg2Img,
   buildInpaint,
   buildRemoveBackground,
   buildText2Img,
+  buildWorkflow,
   filenamePrefixFor,
   normalizeRequest
 } from '../lib/index.js'
@@ -96,6 +98,84 @@ test('text2img：完整接线 + 尺寸进 EmptyLatentImage', () => {
   assert.deepEqual(sampler.inputs.negative, ['3', 0])
   assert.deepEqual(wf['7'].inputs.images, ['6', 0])
   assert.deepEqual(wf['6'].inputs.samples, ['5', 0])
+})
+
+test('Flux text2img：分体加载接线（UnetLoaderGGUF + DualCLIPLoader + VAELoader + EmptySD3LatentImage）', () => {
+  const built = buildFluxText2Img(
+    factsFor(
+      { prompt: 'a corgi astronaut', width: 704, height: 1280 },
+      {
+        checkpoint: undefined,
+        flux: {
+          unet: 'flux1-dev-Q4_0.gguf',
+          clip: 't5xxl_fp8_e4m3fn.safetensors',
+          clip2: 'clip_l.safetensors',
+          vae: 'ae.safetensors'
+        }
+      }
+    )
+  )
+  const wf = built.workflow
+  assertNoDanglingRefs(wf)
+
+  // 输出节点仍指 SaveImage（或 PreviewImage），mode 仍是 text2img
+  assert.equal(built.mode, 'text2img')
+  assert.equal(built.outputNodeId, '7')
+  assert.equal(built.backend, 'flux', '应标记走的是 Flux 路线')
+
+  // 加载器三件套
+  assert.equal(wf['11'].class_type, 'UnetLoaderGGUF')
+  assert.equal(wf['11'].inputs.unet_name, 'flux1-dev-Q4_0.gguf')
+  assert.equal(wf['12'].class_type, 'DualCLIPLoader')
+  assert.equal(wf['12'].inputs.clip_name1, 't5xxl_fp8_e4m3fn.safetensors')
+  assert.equal(wf['12'].inputs.clip_name2, 'clip_l.safetensors')
+  assert.equal(wf['12'].inputs.type, 'flux')
+  assert.equal(wf['13'].class_type, 'VAELoader')
+  assert.equal(wf['13'].inputs.vae_name, 'ae.safetensors')
+
+  // 提示词接 DualCLIP（[12,0]），不是 checkpoint
+  assert.equal(wf['2'].class_type, 'CLIPTextEncode')
+  assert.equal(wf['2'].inputs.text, 'a corgi astronaut')
+  assert.deepEqual(wf['2'].inputs.clip, ['12', 0])
+
+  // 尺寸进 EmptySD3LatentImage（不是 EmptyLatentImage）
+  assert.equal(wf['14'].class_type, 'EmptySD3LatentImage')
+  assert.equal(wf['14'].inputs.width, 704)
+  assert.equal(wf['14'].inputs.height, 1280)
+
+  const sampler = wf['5']
+  assert.equal(sampler.class_type, 'KSampler')
+  assert.equal(sampler.inputs.denoise, 1, 'text2img 应该是整图生成')
+  assert.deepEqual(sampler.inputs.latent_image, ['14', 0])
+  assert.deepEqual(sampler.inputs.model, ['11', 0], 'model 应来自 GGUF unet，不是 checkpoint')
+  assert.deepEqual(sampler.inputs.positive, ['2', 0])
+  assert.deepEqual(sampler.inputs.negative, ['3', 0])
+
+  // VAE 解码接独立 VAELoader（[13,0]），不是 checkpoint
+  assert.equal(wf['6'].class_type, 'VAEDecode')
+  assert.deepEqual(wf['6'].inputs.vae, ['13', 0])
+  assert.deepEqual(wf['6'].inputs.samples, ['5', 0])
+})
+
+test('Flux text2img：buildWorkflow dispatch — facts.flux 存在且无 checkpoint 时走 Flux', () => {
+  const facts = factsFor(
+    { prompt: 'a corgi astronaut', width: 704, height: 1280 },
+    {
+      checkpoint: undefined,
+      flux: { unet: 'flux1-dev-Q4_0.gguf', clip: 't5xxl_fp8_e4m3fn.safetensors', clip2: 'clip_l.safetensors', vae: 'ae.safetensors' }
+    }
+  )
+  const built = buildWorkflow(facts)
+  assert.equal(built.backend, 'flux')
+  assert.equal(built.workflow['11'].class_type, 'UnetLoaderGGUF')
+})
+
+test('Flux text2img：缺 flux 资产组 → 报内部错误不静默降级', () => {
+  assert.throws(
+    () => buildFluxText2Img(factsFor({ prompt: 'x', width: 704, height: 1280 }, { checkpoint: undefined })),
+    /Flux 资产组/,
+    '没有 flux 时应抛「需要探测到的 Flux 资产组」而不是产出坏工作流'
+  )
 })
 
 test('img2img：LoadImage → VAEEncode → KSampler，denoise=strength', () => {

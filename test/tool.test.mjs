@@ -51,7 +51,7 @@ test('工具身份：名字是 generate_image，参数/输出都挂上了', asyn
   const tool = createGenerateImageTool(pluginConfigFor(baseUrl))
 
   assert.equal(tool.name, TOOL_NAME)
-  assert.equal(tool.name, 'generate_image')
+  assert.equal(tool.name, 'comfyui_generate_image')
   assert.equal(typeof tool.description, 'string')
   assert.ok(tool.description.length > 40, '描述要够模型判断该不该调用')
   assert.match(tool.description, /ComfyUI/)

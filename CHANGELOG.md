@@ -10,17 +10,17 @@
 
 ### 新增
 
-- **`generate_video`：文生视频 / 图生视频**（`src/video/`）。
+- **`comfyui_generate_video`：文生视频 / 图生视频**（`src/video/`）。
   后端走 Wan2.2 TI2V-5B，`UnetLoaderGGUF` 与 `UNETLoader` 两种加载器都支持，模型 / 文本编码器 / VAE
   都按本机实际可选项**择优**，也能用 `model` / `videoModel` 显式指定。
   - **帧数自动对齐到 4n+1**：Wan 的 VAE 时间下采样率是 4，不对齐末尾会糊。所以 `seconds` 是「期望时长」，
     真实时长以返回的 `frames / fps` 为准，结果 `notes` 里会写清「约 48 帧 → 49 帧（真实时长 2.04 秒）」。
   - 尺寸自动对齐到 32 的倍数；超出上限（481 帧）**报错而不是静默夹断**，报错里给出该 fps 下最长多少秒。
   - `estimateSeconds()` 按本机 49 帧 / 30 步 / 832×480 ≈ 210 秒标定，返回量级估算，供 Agent 决定要不要降参。
-- **`generate_talking_video`：台词 → 语音 → 说话画面 → 对口型**（`src/talking/`）。
+- **`comfyui_generate_talking_video`：台词 → 语音 → 说话画面 → 对口型**（`src/talking/`）。
   三段串联，三种模式（`text2talking` / `image2talking` / `video2talking`），中间产物落在独立临时目录，
   失败时 hint 里给出该目录，便于查是哪一段挂了。
-- **`generate_audio`：只配音**（`src/audio/`）。一句台词 → 16kHz 单声道 wav，不碰画面，
+- **`comfyui_generate_audio`：只配音**（`src/audio/`）。一句台词 → 16kHz 单声道 wav，不碰画面，
   方便「先把音色和语气调好，再拿去对口型」这种迭代。
 - **TTS 换成 IndexTTS-2 克隆音色**（`ttsEngine: 'indextts'`，默认）：音色由 `spk_audio_prompt`
   指向的 3~15 秒参考音频决定；`emo_vector`（8 维情绪）/ `emo_alpha`（强度）/ `emo_audio_prompt`
@@ -49,7 +49,7 @@
 
 ### 未变
 
-- `generate_image` 的工具名、参数、输出结构、报错文案**一字未改**，已有调用与配置照旧。
+- `comfyui_generate_image` 的工具名、参数、输出结构、报错文案**一字未改**，已有调用与配置照旧。
 
 ## [未发布]
 
@@ -120,7 +120,7 @@
 
 ### 新增
 
-- **统一的 Agent 工具 `generate_image`**：一个入口覆盖四种模式，内部按模块拆分，
+- **统一的 Agent 工具 `comfyui_generate_image`**：一个入口覆盖四种模式，内部按模块拆分，
   对外只暴露一个工具（`text2img` / `img2img` / `inpaint` / `remove_background`）。
 - **参数推断**：不传 `mode` 时按 `input_image` / `mask_image` 推断（有图+遮罩 → inpaint，只有图 → img2img，
   都没有 → text2img）；模式**不猜**，冲突直接报错并给出怎么改。

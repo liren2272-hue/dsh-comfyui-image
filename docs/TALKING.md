@@ -1,6 +1,6 @@
 # 说话视频：台词 → 语音 → 说话画面 → 对口型
 
-`generate_talking_video` 把一句话变成一条**口型对得上**的人像视频。这份文档讲清楚三件事：
+`comfyui_generate_talking_video` 把一句话变成一条**口型对得上**的人像视频。这份文档讲清楚三件事：
 为什么必须分三段、每段靠什么工具、以及装这些工具时踩过的坑。
 
 ---
@@ -68,7 +68,7 @@ venv 用 Python 3.11 + torch 2.x + transformers，装好仓库自带的 `uv pip 
 
 ### ② 说话画面
 
-复用 `generate_video` 那套 Wan2.2 TI2V-5B（GGUF Q4_K_M 3.2GB + Wan2.2_VAE 1.3GB + umt5 文本编码器 6.7GB），
+复用 `comfyui_generate_video` 那套 Wan2.2 TI2V-5B（GGUF Q4_K_M 3.2GB + Wan2.2_VAE 1.3GB + umt5 文本编码器 6.7GB），
 见 [VIDEO.md](./VIDEO.md)。这一段的 `prompt` 由插件自动补一段「正面、对着镜头说话、镜头固定」的描述，
 用户传的 `prompt` 只用来描述长相与场景——**台词不要写进 prompt**，写进 `script`。
 

@@ -305,7 +305,7 @@ test('runAudioGeneration（indextts）：假链跑通，产物落指定路径并
   assert.match(path.basename(path.dirname(run.audioPath)), /^dsh-audio-/)
   assert.equal(run.metadataPath, `${target}.json`)
   const meta = JSON.parse(fs.readFileSync(run.metadataPath, 'utf8'))
-  assert.equal(meta.tool, 'generate_audio')
+  assert.equal(meta.tool, 'comfyui_generate_audio')
   assert.equal(meta.outputFile, target)
   assert.equal(meta.tts.engine, 'indextts')
   // 元数据要把「音色从哪来、情绪怎么给」原样记下来，否则日后无法复现同一条配音。
@@ -527,7 +527,7 @@ test('AUDIO_OUTPUT_SCHEMA：required 齐全且不含 DSH 不支持的关键字',
 test('createGenerateAudioTool：工具名/描述/output 渲染与 presentationMeta', () => {
   const tool = createGenerateAudioTool()
   assert.equal(tool.name, AUDIO_TOOL_NAME)
-  assert.equal(AUDIO_TOOL_NAME, 'generate_audio')
+  assert.equal(AUDIO_TOOL_NAME, 'comfyui_generate_audio')
   assert.match(AUDIO_TOOL_DESCRIPTION, /不碰 ComfyUI 画面/)
   assert.match(AUDIO_TOOL_DESCRIPTION, /edge_pitch/)
   assert.deepEqual(tool.parameters, AUDIO_PARAMETERS_SCHEMA)

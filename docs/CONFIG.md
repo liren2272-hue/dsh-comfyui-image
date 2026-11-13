@@ -86,9 +86,9 @@ lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer
 |---|---|---|---|---|
 | `rembgNode` | string | 自动择优 | `COMFYUI_REMBG_NODE` | 指定去背方案，**只影响 `remove_background`**。可填方案 key：`essentials` / `bria` / `layerstyle` / `was`，也可以直接填节点类名（如 `RemBGSession+`、`ImageRemoveBackground+`）。指定的方案在本机不存在时会**明确报错**（而不是偷偷换别的） |
 
-### 说话视频（generate_talking_video）
+### 说话视频（comfyui_generate_talking_video）
 
-这一组只影响 `generate_talking_video`（说话视频）。绝大多数**不用改**——默认值已经指向本机常见的安装位置，
+这一组只影响 `comfyui_generate_talking_video`（说话视频）。绝大多数**不用改**——默认值已经指向本机常见的安装位置，
 只有你把 MuseTalk / IndexTTS 装在别处时才需要动。
 
 | 键 | 类型 | 默认值 | 环境变量 | 说明 |

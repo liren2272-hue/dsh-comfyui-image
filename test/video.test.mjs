@@ -496,7 +496,7 @@ test('端到端：连不上 ComfyUI 时给出可读错误', async () => {
 /* ─────────────────────────── 4. 工具契约 ─────────────────────────── */
 
 test('generate_video 的 schema：只用 DSH 支持的 JSON Schema 子集', () => {
-  assert.equal(VIDEO_TOOL_NAME, 'generate_video')
+  assert.equal(VIDEO_TOOL_NAME, 'comfyui_generate_video')
   assert.equal(VIDEO_PARAMETERS_SCHEMA.type, 'object')
   assert.deepEqual([...VIDEO_PARAMETERS_SCHEMA.properties.mode.enum], ['text2video', 'img2video'])
   assert.deepEqual([...VIDEO_PARAMETERS_SCHEMA.required], [], '全部参数可选，必填性由运行时判断')
@@ -521,7 +521,7 @@ test('generate_video 的 schema：只用 DSH 支持的 JSON Schema 子集', () =
 
 test('工具定义：name/parameters/output/execute 齐全，失败时抛带 ❌ 的中文文案', async () => {
   const tool = createGenerateVideoTool({ baseUrl: 'http://127.0.0.1:1', requestTimeoutMs: 500 })
-  assert.equal(tool.name, 'generate_video')
+  assert.equal(tool.name, 'comfyui_generate_video')
   assert.equal(tool.parameters, VIDEO_PARAMETERS_SCHEMA)
   assert.equal(typeof tool.execute, 'function')
   assert.equal(typeof tool.output.render, 'function')

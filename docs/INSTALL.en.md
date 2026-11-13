@@ -240,7 +240,7 @@ Do these four things in order; each one can be judged on its own:
 |---|---|---|
 | 1 | `npm run doctor` (in the plugin directory) | prints the effective config + the ComfyUI version + the availability of the four modes; exit code `0` |
 | 2 | DSH Settings → plugin list | `dsh-comfyui-image` is visible (display name "ComfyUI 图片生成"), and the toggle works |
-| 3 | Tell the Agent "use generate_image to generate a test image" | the model can see and call this tool, returning `✅ 出图成功` + a line with an absolute path |
+| 3 | Tell the Agent "use comfyui_generate_image to generate a test image" | the model can see and call this tool, returning `✅ 出图成功` + a line with an absolute path |
 | 4 | Click/open the returned path | the image exists, and next to it there is a same-named `.json` metadata file |
 
 If any step goes wrong, check [FAQ.md](./FAQ.md) first; if that doesn't help, file an issue with the output of `npm run doctor --json`.

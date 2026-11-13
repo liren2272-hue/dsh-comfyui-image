@@ -157,7 +157,7 @@ ComfyUI 里没有 CheckpointLoaderSimple 节点。
 ComfyUI 执行工作流失败（prompt_id=8f3c…）：…
 
 下一步：常见的两个原因：工作流里用到的节点/模型在本机不存在（去 ComfyUI 控制台看红色报错），
-或者显存不足。也可以用模型参数覆盖：generate_image 的 model / steps / width / height 调小一点重试。
+或者显存不足。也可以用模型参数覆盖：comfyui_generate_image 的 model / steps / width / height 调小一点重试。
 ```
 
 **怎么办**：打开 ComfyUI 界面，在队列/历史里按 `prompt_id` 找到这次任务，看它标红的节点。
@@ -220,7 +220,7 @@ mode=text2img 不接受 input_image（收到 D:\in.png）。
 
 ## 四、其他常见疑问
 
-### DSH 里看不到 `generate_image` 工具
+### DSH 里看不到 `comfyui_generate_image` 工具
 
 按顺序查：
 
@@ -229,7 +229,7 @@ mode=text2img 不接受 input_image（收到 D:\in.png）。
    `dsh.profile.bundles` 是在**那一个** profile 的 `package.json` 里加的；
 3. **重启过 DSH 吗**：bundle 列表是启动时读的；
 4. **会话是在装插件之前开的吗**：工具表在会话/运行时装配时注入，装完插件**新开一个会话**最稳；
-5. **看宿主日志有没有这行警告**：`拿不到 tools 服务，generate_image 未注册（请在 profile 里确认插件依赖正常）。`
+5. **看宿主日志有没有这行警告**：`拿不到 tools 服务，comfyui_generate_image 未注册（请在 profile 里确认插件依赖正常）。`
    —— 出现它就说明插件加载了但工具注册表没拿到。
 
 ### 改了 `~/.dsh-comfyui-image/config.json` 没反应

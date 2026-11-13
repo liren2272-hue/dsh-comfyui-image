@@ -1,11 +1,11 @@
 # 纯配音：一句台词 → 一个 wav
 
-`generate_audio` 是四个工具里**最短的一条链**：只做「台词 → 语音」，不碰 ComfyUI、不碰画面、不碰口型。
+`comfyui_generate_audio` 是四个工具里**最短的一条链**：只做「台词 → 语音」，不碰 ComfyUI、不碰画面、不碰口型。
 
 ## 一、为什么要把配音单独拆出来
 
-前面三个工具（`generate_image` / `generate_video` / `generate_talking_video`）最终都要经过 ComfyUI 出画面。
-而 `generate_talking_video` 是**三段**：`① TTS → ② Wan2.2 图生视频（无声说话画面）→ ③ MuseTalk 只重绘嘴部`。
+前面三个工具（`comfyui_generate_image` / `comfyui_generate_video` / `comfyui_generate_talking_video`）最终都要经过 ComfyUI 出画面。
+而 `comfyui_generate_talking_video` 是**三段**：`① TTS → ② Wan2.2 图生视频（无声说话画面）→ ③ MuseTalk 只重绘嘴部`。
 哪怕你只想要一条配音，它也会老老实实把 ② 和 ③ 跑完——那是几分钟到十几分钟的开销，而你要的东西在第①段就做完了。
 
 所以这个工具做的事只有一件：
@@ -103,7 +103,7 @@
 | TTS 进程非零退出 | 报错带退出码 + stderr 最后一行有意义的内容 |
 | TTS 正常退出但没产出文件 | 报错「…正常退出但没有产出 wav / 文件。」 |
 | `ffprobe` 量不出时长 | 报错「量不出语音时长。」 |
-| 需要对口型视频 | 用 `generate_talking_video`，它内部复用同一套 TTS 计划 |
+| 需要对口型视频 | 用 `comfyui_generate_talking_video`，它内部复用同一套 TTS 计划 |
 
 ## 六、能力边界
 
@@ -111,5 +111,5 @@
   但它**不能凭空造音色**——没有参考音频就没有音色；想要「不用准备素材」仍得用 `edge` 的现成嗓子。
 - **慢**：IndexTTS 单条 2~4 分钟（6GB 显存）。只要一句配音、对情绪没要求时，`edge` 几秒就出。
 - **不做后处理**：不降噪、不混响、不做等响度，出来的是干净但「素」的 16kHz 单声道。
-- **不对口型**：本工具只出音频。要口型请用 `generate_talking_video`——它内部会用同一套 TTS 计划**再合成一遍**语音，
+- **不对口型**：本工具只出音频。要口型请用 `comfyui_generate_talking_video`——它内部会用同一套 TTS 计划**再合成一遍**语音，
   本工具产出的 wav 不参与那条链。

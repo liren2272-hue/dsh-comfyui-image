@@ -1,6 +1,6 @@
 # 情绪 TTS 引擎选型报告（已落地：IndexTTS-2.5）
 
-> 目的：为 `generate_audio` / `generate_talking_video` 选一个带细粒度情绪控制的 TTS 引擎。
+> 目的：为 `comfyui_generate_audio` / `comfyui_generate_talking_video` 选一个带细粒度情绪控制的 TTS 引擎。
 >
 > **状态：已落地。** 插件 v0.5.0 起 `tts=indextts` 为默认引擎，取代原来的 Spark-TTS；
 > 本文保留完整选型过程与对比数据，供日后换型或评估其他候选时参考。
@@ -30,7 +30,7 @@
 | 输出 | 22kHz 单声道 wav（插件再归一成 16kHz） |
 | 权重体积 | 约 12GB（`D:/Tools/IndexTTS/checkpoints/`） |
 
-结论：**6GB 卡能跑，但慢**。这也是为什么 `generate_audio` 仍保留 `tts=edge`——只要一句配音、不挑情绪时，edge-tts 几秒就出。
+结论：**6GB 卡能跑，但慢**。这也是为什么 `comfyui_generate_audio` 仍保留 `tts=edge`——只要一句配音、不挑情绪时，edge-tts 几秒就出。
 
 ---
 
@@ -66,7 +66,7 @@
 
 ## 已实现的接入（v0.5.0）
 
-`generate_audio` 与 `generate_talking_video` 都新增了 `tts=indextts` 分支（并成为默认），参数与 `edge` 并列：
+`comfyui_generate_audio` 与 `comfyui_generate_talking_video` 都新增了 `tts=indextts` 分支（并成为默认），参数与 `edge` 并列：
 
 ```
 tts=indextts
@@ -83,7 +83,7 @@ duration_factor=1.0  # 时长系数 (0, 3]，>1 更慢更长
 
 **没实现的**：`emo_text`（文本情绪描述，需要额外加载 Qwen 情绪分类器，显存不够）。这条留作后续可选。
 
-输出仍按 `generate_audio` 现有约定：`comfyui-audio-<时间戳>-<随机4位>.wav`，16kHz 单声道，旁边写 `.json` 元数据，绝不覆盖。
+输出仍按 `comfyui_generate_audio` 现有约定：`comfyui-audio-<时间戳>-<随机4位>.wav`，16kHz 单声道，旁边写 `.json` 元数据，绝不覆盖。
 
 ---
 

@@ -1,8 +1,8 @@
 # 工具参数说明
 
-这份文档逐项说明 **`generate_image`** 的参数、默认值、以及在什么情况下会被忽略。
+这份文档逐项说明 **`comfyui_generate_image`** 的参数、默认值、以及在什么情况下会被忽略。
 
-> 另外三个工具各有一份文档：[视频 `generate_video`](./VIDEO.md)、[说话视频 `generate_talking_video`](./TALKING.md)、[纯配音 `generate_audio`](./AUDIO.md)。
+> 另外三个工具各有一份文档：[视频 `comfyui_generate_video`](./VIDEO.md)、[说话视频 `comfyui_generate_talking_video`](./TALKING.md)、[纯配音 `comfyui_generate_audio`](./AUDIO.md)。
 
 - 参数 schema 定义在 `src/tool.ts`（`PARAMETERS_SCHEMA`），归一化逻辑在 `src/params.ts`。
 - 参数是**原始 JSON Schema**，且只用 DSH 支持的子集（`minimum` / `maximum` / `format` 这些键会被直接拒绝），
