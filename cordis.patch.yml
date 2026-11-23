@@ -17,8 +17,7 @@
 #       ttsSpkAudioPrompt: 'D:/Tools/IndexTTS/ref_audio_voice.wav'   # 音色由这段参考音频决定
 #       indexttsDir: 'D:/Tools/IndexTTS'
 #       indexttsPython: 'D:/Tools/IndexTTS/.venv/Scripts/python.exe'
-#       musetalkDir: 'D:/Tools/MuseTalk'
-#       musetalkPython: 'D:/Tools/MuseTalk/venv/Scripts/python.exe'
+#       # InfiniteTalk 模型放 ComfyUI/models 下（见 docs/TALKING.md），这里无需配置路径
 #       ffmpegBin: 'C:/FFmpeg/bin'
 - insert:
     - id: dsh-comfyui-image

@@ -1,7 +1,50 @@
 # 更新日志
 
+## [0.7.0] — 2026-11-23
+
+### 新增
+
+- **`comfyui_generate_music`（ACE-Step 1.5 背景音乐生成）**：本机 ComfyUI 0.43 原生 `TextEncodeAceStepAudio1.5` 节点 + `ace_step_1.5_turbo_aio.safetensors` 单文件 AIO（9.33GiB，RTX3060 6GB 可跑）。纯器乐：lyrics 留空即可，无歌词无人声。参数 `tags`（风格描述）/ `duration`（1~300 秒）/ `seed` / `bpm` / `key` / `language` / `format`（flac/mp3/opus）/ `output_path`。官方模板 8 步采样。
+- **`comfyui_transcribe_audio`（Whisper 语音识别）**：复用 IndexTTS 的 venv（`D:/Tools/IndexTTS/.venv/Scripts/python.exe`，whisper 20250625 + torch 2.8+cu128 已装），默认 `large-v3`（whisper 系列最强，本机 6GB 可跑），CUDA 失败自动回退 CPU；权重缓存在 `~/.cache/whisper`。参数 `audio_path` / `model` / `language` / `device` / `task` / `initial_prompt` / `word_timestamps` / `output_path`。返回 text + 分段（可选词级时间戳）。
+- 新增配置项：`musicCheckpoint` / `musicTimeoutMs` / `musicFormat` / `musicSteps` / `musicCfg` / `musicSampler` / `musicScheduler` / `musicBpm` / `musicKeyScale` / `musicLanguage` / `musicMaxDuration`，`transcribePython` / `transcribeModel` / `transcribeDevice` / `transcribeTimeoutMs`；对应 `COMFYUI_MUSIC_*` / `COMFYUI_TRANSCRIBE_*` 环境变量。
+- 修复 `src/params.ts` 构造 `NormalizedRequest` 时缺四个 `*FromArgs` 字段的既存 typecheck 错误。
+
+## [0.6.1] — 2026-11-22
+
+### 新增
+
+- **分辨率自动分级（6GB 显存实测调优）**：InfiniteTalk 端到端耗时对帧数超线性——本机 6GB 下 832x480 的 77 帧就卡死近 2 小时，
+  降到 512x320 后 121 帧 12.5 分钟能出片，且口型清晰度无损。插件现在按语音时长算出的规划帧数自动选分辨率：
+  **≤60 帧（约 ≤2 秒台词）用 832x480 高清，>60 帧自动降到 512x320**；显式传 `width`/`height` 时完全尊重用户选择、不自动降级。
+  分级发生在 TTS 之后、首帧之前，结果 `notes` 与元数据里的 `width`/`height` 记录的是实际用值。
+- 实测边界：512x320 下 2.9 秒/77 帧≈3 分钟、5 秒/121 帧≈12.5 分钟；7 秒/172 帧仍卡死，建议拆段。
+- 新增 `autoResolutionForFrames` 纯函数与 `TALKING_HD_MAX_FRAMES` / `TALKING_HD_SIZE` / `TALKING_LOWRES_SIZE` 常量；
+  测试数 164 → 167，全绿。
+
+
+
 本文件记录 **dsh-comfyui-image** 的版本变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [0.6.0] — 2026-11-22
+
+### 变更
+
+- **对口型引擎从 MuseTalk 1.5 换成 InfiniteTalk**（kijai 版 `ComfyUI-WanVideoWrapper` 内），改为**端到端一次生成**：台词 → TTS → 首帧人像 → InfiniteTalk 一次生成带口型视频。
+  移除旧的「Wan2.2 无声说话视频 + MuseTalk 局部重绘嘴部再贴回」两步，因此不再有嘴部边缘柔化 / 贴片模糊。
+  三种模式相应调整为：text2talking（文生图首帧）、image2talking（图片首帧）、video2talking（抽视频首帧，**不保留原视频动作**）。
+- **新增 InfiniteTalk 模型清单**（都在 `ComfyUI/models` 下，需用户预先下载）：主模型 `wan2.1-i2v-14b-480p-Q3_K_S.gguf`（~7.4GB）、
+  InfiniteTalk patch `Wan2_1-InfiniteTalk_Single_Q4_K_M.gguf`（~1.4GB）、4 步蒸馏 LoRA `lightx2v_I2V_14B_480p_cfg_step_distill_rank16_bf16.safetensors`、
+  音频编码器 `wav2vec2/wav2vec2-chinese-base_fp16.safetensors`、VAE `vae/wan_2.1_vae.safetensors`、文本编码器 `text_encoders/umt5_xxl_bf16_dequant.safetensors`
+  （由 fp8 scaled 版反量化为 bf16；`WanVideoTextEncodeCached` 节点拒绝 fp8 scaled）。
+- **6GB 显卡（RTX 3060 Laptop）可跑的关键设置**：`attention_mode=sdpa`、T5 用 bf16_dequant 版、LoRA `merge_loras=false`、block swap。
+  81 帧 / 4 步约 20 分钟（分钟级，远慢于旧 MuseTalk 的 2 分钟），是清晰度换速度的取舍；帧数由语音时长算（25fps，4n+1 对齐）。
+- **edge-tts 迁到 IndexTTS 的 venv**（`D:/Tools/IndexTTS/.venv/Scripts/python.exe`），不再依赖 MuseTalk 的 venv。
+- **配置清理**：删除旧的 MuseTalk 路径配置项与对应环境变量，edge-tts 改用 `indexttsPython`。
+- **兼容性补丁**：本机 transformers 5.x 的 `Wav2Vec2Encoder` 不再返回逐层 `hidden_states`，导致 WanVideoWrapper 的
+  `multitalk/nodes.py` 报 `'NoneType' object is not subscriptable`；已给 `multitalk/wav2vec2.py` 打 forward hook 补丁重建
+  13 层 `hidden_states`（保留 `.bak` 可回退）。升级 transformer 或 wrapper 后若复现需重打补丁。
+- 测试数从 160 增至 **164**；文档（TALKING / AUDIO / CONFIG / 中英 README）同步为 InfiniteTalk 口径。
 
 ## [0.5.0] — 2026-11-04
 
@@ -25,13 +68,13 @@
 - **TTS 换成 IndexTTS-2 克隆音色**（`ttsEngine: 'indextts'`，默认）：音色由 `spk_audio_prompt`
   指向的 3~15 秒参考音频决定；`emo_vector`（8 维情绪）/ `emo_alpha`（强度）/ `emo_audio_prompt`
   （照着另一段音频的语气）/ `duration_factor`（语速）可调。`tts: 'edge'` 保留，用 `edge_voice` + `rate` 秒出。
-- **对口型走 MuseTalk 1.5**：`--version v15` + `--parsing_mode jaw` + `--use_float16`。
-  素材会先拷进 `<musetalkDir>/inputs`（**无空格目录**）——官方 `inference.py` 拼 ffmpeg 命令时没加引号，
-  路径带空格会直接断掉，这个坑在代码里兜住了。
+- **对口型走 MuseTalk 1.5**（0.6.0 起已换成 InfiniteTalk）：`--version v15` + `--parsing_mode jaw` + `--use_float16`。
+  素材会先拷进临时无空格目录——旧 `inference.py` 拼 ffmpeg 命令时没加引号，
+  路径带空格会直接断掉，这个坑当时在代码里兜住了。
 - **配置新增 video 段与 talking 段**：`videoModel` / `videoVae` / `videoSeconds` / `videoFps` / `videoSteps` /
   `videoCfgScale` / `videoShift` / `ttsEngine` / `ttsSpkAudioPrompt` / `indexttsDir` / `indexttsPython` /
-  `musetalkDir` / `musetalkPython` / `ffmpegBin` / `videoTimeoutMs` / `talkingTimeoutMs`，
-  对应环境变量 `COMFYUI_VIDEO_*`、`COMFYUI_INDEXTTS_*`、`COMFYUI_MUSETALK_*`、`COMFYUI_FFMPEG_BIN`、
+  （旧的 MuseTalk 路径项 0.6.0 已删除）/ `ffmpegBin` / `videoTimeoutMs` / `talkingTimeoutMs`，
+  对应环境变量 `COMFYUI_VIDEO_*`、`COMFYUI_INDEXTTS_*`、`COMFYUI_FFMPEG_BIN`、
   `COMFYUI_TALKING_TIMEOUT_MS`。四层优先级不变。
 - **文档**：新增 [docs/TALKING.md](docs/TALKING.md)（为什么必须分三段、装法、耗时实测、踩过的坑、能力边界）、
   [docs/AUDIO.md](docs/AUDIO.md)（纯配音参数与两个引擎）、
@@ -45,7 +88,7 @@
 - 测试从 88 项扩到 **160 项**：新增 video 21 项、talking 29 项、audio 22 项；
   `test/mock-comfyui.mjs` 增加 `videoNodes()` 与 `makeFakeMp4()`，`/view` 按扩展名分流回 mp4，
   `buildHistoryEntry` 识别 `SaveVideo` 并把产物挂在 `gifs` 键上（照抄真机形状）；
-  子进程用 `fakeSpawn` 假造 TTS / MuseTalk 的输出，不需要真装模型就能跑全套。
+  子进程用 `fakeSpawn` 假造 TTS / InfiniteTalk 的输出，不需要真装模型就能跑全套。
 
 ### 未变
 

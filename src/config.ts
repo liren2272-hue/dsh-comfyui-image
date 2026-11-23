@@ -80,18 +80,44 @@ export const DEFAULTS = {
   /** edge-tts 的默认音色与语速。 */
   edgeVoice: 'zh-CN-XiaoxiaoNeural',
   edgeRate: '-4%',
-  /** IndexTTS 仓库根与它的 venv python（路径按本机实际布局给默认值，通常不用改）。 */
+  /** IndexTTS 仓库根与它的 venv python（edge-tts 也装在这个 venv 里；MuseTalk 删除后统一用这个）。 */
   indexttsDir: 'D:/Tools/IndexTTS',
   indexttsPython: 'D:/Tools/IndexTTS/.venv/Scripts/python.exe',
-  /** MuseTalk 仓库根与它的 venv python。edge-tts 也装在这个 venv 里。 */
-  musetalkDir: 'D:/Tools/MuseTalk',
-  musetalkPython: 'D:/Tools/MuseTalk/venv/Scripts/python.exe',
-  /** ffmpeg 目录（MuseTalk 的 --ffmpeg_path 用），以及两个可执行文件命令。 */
+  /** ffmpeg 目录与两个可执行文件命令（语音归一到 16k 用）。 */
   ffmpegBin: 'C:/FFmpeg/bin',
   ffmpeg: 'ffmpeg',
   ffprobe: 'ffprobe',
-  /** 口型整条链路的超时：语音 + 图生视频 + 对口型，30 分钟起步。 */
-  talkingTimeoutMs: 1_800_000
+  /** 口型整条链路的超时：语音 + InfiniteTalk 端到端生成，30 分钟起步（81 帧/4 步约 21 分钟）。 */
+  talkingTimeoutMs: 1_800_000,
+
+  // ── 音乐生成（generate_music / ACE-Step 1.5 AIO）────────────────────
+  /** ACE-Step 1.5 turbo AIO 单文件：9.33GiB，本机 RTX3060 6GB 跑得动，纯器乐 lyrics 留空。 */
+  musicCheckpoint: 'ace_step_1.5_turbo_aio.safetensors',
+  /** 音乐生成慢，默认给 15 分钟。 */
+  musicTimeoutMs: 900_000,
+  /** 音频封装格式：flac（无损）/ mp3 / opus。 */
+  musicFormat: 'flac',
+  /** ACE-Step turbo 是蒸馏模型，官方模板 8 步就够。 */
+  musicSteps: 8,
+  /** ACE-Step 的 KSampler CFG 官方模板是 1；文本编码器的 cfg_scale 另在工具里固定 2.0。 */
+  musicCfg: 1,
+  musicSampler: 'euler',
+  musicScheduler: 'simple',
+  musicBpm: 120,
+  musicKeyScale: 'C major',
+  musicLanguage: 'zh',
+  /** 单次生成最长秒数（0~2000 是节点上限，这里给用户留 300 秒的实用上限）。 */
+  musicMaxDuration: 300,
+
+  // ── 语音识别（transcribe_audio / Whisper）───────────────────────────
+  /** 复用 IndexTTS 的 venv：whisper 20250625 + torch 2.8+cu128 已装好。 */
+  transcribePython: 'D:/Tools/IndexTTS/.venv/Scripts/python.exe',
+  /** large-v3 是 whisper 系列最强，本机 6GB 跑得动；权重缓存在 ~/.cache/whisper。 */
+  transcribeModel: 'large-v3',
+  /** CUDA 优先，脚本内失败自动回退 cpu。 */
+  transcribeDevice: 'cuda',
+  /** 长音频转写耗时，默认 10 分钟。 */
+  transcribeTimeoutMs: 600_000
 } as const
 
 /** 环境变量名 → 插件配置键。 */
@@ -114,10 +140,14 @@ const ENV_KEYS: Record<string, keyof PluginConfigInput> = {
   COMFYUI_INDEXTTS_DIR: 'indexttsDir',
   COMFYUI_INDEXTTS_PYTHON: 'indexttsPython',
   COMFYUI_INDEXTTS_SPK_AUDIO_PROMPT: 'ttsSpkAudioPrompt',
-  COMFYUI_MUSETALK_DIR: 'musetalkDir',
-  COMFYUI_MUSETALK_PYTHON: 'musetalkPython',
   COMFYUI_FFMPEG_BIN: 'ffmpegBin',
   COMFYUI_TALKING_TIMEOUT_MS: 'talkingTimeoutMs',
+  COMFYUI_MUSIC_CHECKPOINT: 'musicCheckpoint',
+  COMFYUI_MUSIC_TIMEOUT_MS: 'musicTimeoutMs',
+  COMFYUI_TRANSCRIBE_PYTHON: 'transcribePython',
+  COMFYUI_TRANSCRIBE_MODEL: 'transcribeModel',
+  COMFYUI_TRANSCRIBE_DEVICE: 'transcribeDevice',
+  COMFYUI_TRANSCRIBE_TIMEOUT_MS: 'transcribeTimeoutMs',
   DSH_COMFYUI_IMAGE_OUTPUT: 'outputDir'
 }
 
@@ -244,13 +274,34 @@ export function resolveConfig(pluginConfig?: unknown, env: NodeJS.ProcessEnv = p
     edgeRate: pickString(...s('edgeRate')) ?? DEFAULTS.edgeRate,
     indexttsDir: pickString(...s('indexttsDir')) ?? DEFAULTS.indexttsDir,
     indexttsPython: pickString(...s('indexttsPython')) ?? DEFAULTS.indexttsPython,
-    musetalkDir: pickString(...s('musetalkDir')) ?? DEFAULTS.musetalkDir,
-    musetalkPython: pickString(...s('musetalkPython')) ?? DEFAULTS.musetalkPython,
     ffmpegBin: pickString(...s('ffmpegBin')) ?? DEFAULTS.ffmpegBin,
     ffmpeg: pickString(...s('ffmpeg')) ?? DEFAULTS.ffmpeg,
     ffprobe: pickString(...s('ffprobe')) ?? DEFAULTS.ffprobe,
     talkingTimeoutMs: Math.round(
       pickNumber(10_000, 7_200_000, ...s('talkingTimeoutMs')) ?? DEFAULTS.talkingTimeoutMs
+    ),
+
+    /* 音乐生成 */
+    musicCheckpoint: pickString(...s('musicCheckpoint')) ?? DEFAULTS.musicCheckpoint,
+    musicTimeoutMs: Math.round(
+      pickNumber(10_000, 7_200_000, ...s('musicTimeoutMs')) ?? DEFAULTS.musicTimeoutMs
+    ),
+    musicFormat: pickString(...s('musicFormat')) ?? DEFAULTS.musicFormat,
+    musicSteps: Math.round(pickNumber(1, 500, ...s('musicSteps')) ?? DEFAULTS.musicSteps),
+    musicCfg: pickNumber(0, 100, ...s('musicCfg')) ?? DEFAULTS.musicCfg,
+    musicSampler: pickString(...s('musicSampler')) ?? DEFAULTS.musicSampler,
+    musicScheduler: pickString(...s('musicScheduler')) ?? DEFAULTS.musicScheduler,
+    musicBpm: Math.round(pickNumber(10, 300, ...s('musicBpm')) ?? DEFAULTS.musicBpm),
+    musicKeyScale: pickString(...s('musicKeyScale')) ?? DEFAULTS.musicKeyScale,
+    musicLanguage: pickString(...s('musicLanguage')) ?? DEFAULTS.musicLanguage,
+    musicMaxDuration: Math.round(pickNumber(1, 2000, ...s('musicMaxDuration')) ?? DEFAULTS.musicMaxDuration),
+
+    /* 语音识别 */
+    transcribePython: pickString(...s('transcribePython')) ?? DEFAULTS.transcribePython,
+    transcribeModel: pickString(...s('transcribeModel')) ?? DEFAULTS.transcribeModel,
+    transcribeDevice: pickString(...s('transcribeDevice')) ?? DEFAULTS.transcribeDevice,
+    transcribeTimeoutMs: Math.round(
+      pickNumber(10_000, 7_200_000, ...s('transcribeTimeoutMs')) ?? DEFAULTS.transcribeTimeoutMs
     )
   }
 

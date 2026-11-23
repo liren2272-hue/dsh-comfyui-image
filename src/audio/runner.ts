@@ -1,7 +1,7 @@
 /**
  * 「独立音频生成」编排器：台词 → 语音 wav（仅此而已）。
  *
- * 故意不碰 ComfyUI（画面）和 MuseTalk（口型），避免只为了配音
+ * 故意不碰 ComfyUI（画面）和 InfiniteTalk（口型），避免只为了配音
  * 跑完整 text2talking / video2talking 链路浪费几分钟 GPU 时间。
  *
  * 三层检查点：
@@ -59,7 +59,6 @@ async function synthSpeech(
   config: {
     indexttsPython: string
     indexttsDir: string
-    musetalkPython: string
     ffmpeg: string
     ffprobe: string
     talkingTimeoutMs: number
@@ -110,7 +109,7 @@ async function synthSpeech(
   } else {
     const mp3 = path.join(rawDir, 'edge.mp3')
     const plan = audioEdgeTtsPlan({
-      python: config.musetalkPython,
+      python: config.indexttsPython,
       text,
       voice: request.edgeVoice,
       rate: request.rate,
@@ -125,7 +124,7 @@ async function synthSpeech(
     assertExit(
       result,
       'edge-tts 合成语音',
-      `edge-tts 装在 musetalkPython（当前 ${config.musetalkPython}）里；没装就跑 venv\\Scripts\\python.exe -m pip install edge-tts。`
+      `edge-tts 装在 indexttsPython（当前 ${config.indexttsPython}）里；没装就跑 venv\\Scripts\\python.exe -m pip install edge-tts。`
     )
     if (!isFile(mp3)) {
       throw new ImagePluginError('edge-tts 正常退出但没有产出文件。', `检查 ${mp3} 是否可写；网络不通时 edge-tts 会静默失败。`)
@@ -205,7 +204,6 @@ export interface AudioRunOptions {
     edgeRate: string
     indexttsPython: string
     indexttsDir: string
-    musetalkPython: string
     ffmpeg: string
     ffprobe: string
     talkingTimeoutMs: number
@@ -240,7 +238,6 @@ export async function runAudioGeneration(options: AudioRunOptions): Promise<Audi
     const speech = await synthSpeech(request, {
       indexttsPython: config.indexttsPython,
       indexttsDir: config.indexttsDir,
-      musetalkPython: config.musetalkPython,
       ffmpeg: config.ffmpeg,
       ffprobe: config.ffprobe,
       talkingTimeoutMs: config.talkingTimeoutMs
@@ -265,7 +262,7 @@ export async function runAudioGeneration(options: AudioRunOptions): Promise<Audi
         `${JSON.stringify(
           {
             plugin: 'dsh-comfyui-image',
-            tool: 'generate_audio',
+            tool: 'comfyui_generate_audio',
             createdAt: new Date().toISOString(),
             script: request.script,
             tts: {

@@ -48,7 +48,7 @@ export interface VideoRunResult {
   workflow: ComfyWorkflow
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     function cleanup(): void {
       clearTimeout(timer)

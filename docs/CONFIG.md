@@ -89,7 +89,7 @@ lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer
 ### 说话视频（comfyui_generate_talking_video）
 
 这一组只影响 `comfyui_generate_talking_video`（说话视频）。绝大多数**不用改**——默认值已经指向本机常见的安装位置，
-只有你把 MuseTalk / IndexTTS 装在别处时才需要动。
+只有你把 IndexTTS 装在别处时才需要动。
 
 | 键 | 类型 | 默认值 | 环境变量 | 说明 |
 |---|---|---|---|---|
@@ -99,14 +99,12 @@ lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer
 | `edgeRate` | string | `-4%` | — | `edge` 的相对语速（以 `%` 结尾，可带负号） |
 | `indexttsDir` | string | `D:/Tools/IndexTTS` | `COMFYUI_INDEXTTS_DIR` | IndexTTS 仓库根（子进程的 cwd，包装脚本的 `checkpoints/` 是相对路径） |
 | `indexttsPython` | string | `D:/Tools/IndexTTS/.venv/Scripts/python.exe` | `COMFYUI_INDEXTTS_PYTHON` | **IndexTTS 自己 venv 里的 python** |
-| `musetalkDir` | string | `D:/Tools/MuseTalk` | `COMFYUI_MUSETALK_DIR` | MuseTalk 仓库根 |
-| `musetalkPython` | string | `D:/Tools/MuseTalk/venv/Scripts/python.exe` | `COMFYUI_MUSETALK_PYTHON` | **MuseTalk 自己 venv 里的 python**；`tts=edge` 时也用它跑 edge-tts |
-| `ffmpegBin` | string | `C:/FFmpeg/bin` | `COMFYUI_FFMPEG_BIN` | 塞进子进程 PATH（MuseTalk 内部直接调 `ffmpeg`） |
+| `ffmpegBin` | string | `C:/FFmpeg/bin` | `COMFYUI_FFMPEG_BIN` | 塞进子进程 PATH（供 TTS 归一化等调用 `ffmpeg`） |
 | `ffmpeg` / `ffprobe` | string | `ffmpeg` / `ffprobe` | — | 可执行文件名；不在 PATH 里时留原名即可，靠 `ffmpegBin` 补 PATH |
 | `talkingTimeoutMs` | number | `1800000`（30 分钟） | `COMFYUI_TALKING_TIMEOUT_MS` | 整条链路（TTS + 图生视频 + 对口型）的超时；超时会 SIGKILL 子进程 |
 
-> 两个 `*Python` 一定要指向**各自 venv** 里的解释器，不能是系统 Python：
-> IndexTTS 要自己那套 torch/transformers，MuseTalk 要自己那套 mmpose/mmcv，两者互相冲突。
+> `*Python` 一定要指向 **venv** 里的解释器，不能是系统 Python：
+> IndexTTS 要自己那套 torch/transformers，与 ComfyUI 的环境相互隔离、避免冲突。
 
 ### 插件自身
 
@@ -135,8 +133,6 @@ COMFYUI_TTS_ENGINE=indextts                 # = ttsEngine（indextts / edge）
 COMFYUI_INDEXTTS_DIR=D:/Tools/IndexTTS
 COMFYUI_INDEXTTS_PYTHON=D:/Tools/IndexTTS/.venv/Scripts/python.exe
 COMFYUI_INDEXTTS_SPK_AUDIO_PROMPT=D:/Tools/IndexTTS/ref_audio_voice.wav
-COMFYUI_MUSETALK_DIR=D:/Tools/MuseTalk
-COMFYUI_MUSETALK_PYTHON=D:/Tools/MuseTalk/venv/Scripts/python.exe
 COMFYUI_FFMPEG_BIN=C:/FFmpeg/bin
 COMFYUI_TALKING_TIMEOUT_MS=1800000
 DSH_COMFYUI_IMAGE_OUTPUT=D:/images         # = outputDir

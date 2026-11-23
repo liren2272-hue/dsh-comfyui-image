@@ -251,6 +251,12 @@ export function normalizeRequest(args: GenerateImageArgs, options: NormalizeOpti
     strength,
     steps,
     cfgScale,
+    stepsFromArgs: args.steps !== undefined && args.steps !== null,
+    cfgFromArgs: args.cfg_scale !== undefined && args.cfg_scale !== null,
+    samplerFromArgs:
+      typeof args.sampler_name === 'string' && args.sampler_name.trim() !== '',
+    schedulerFromArgs:
+      typeof args.scheduler === 'string' && args.scheduler.trim() !== '',
     checkpoint,
     samplerName,
     scheduler,

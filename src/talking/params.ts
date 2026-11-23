@@ -37,7 +37,8 @@ export function inferTalkingMode(args: GenerateTalkingArgs): TalkingMode {
 }
 
 /**
- * 把「秒」换成合法帧数：MuseTalk 会把视频截到音频长度，所以宁可多一帧也别少。
+ * 把「秒」换成合法帧数：Wan 系要求帧数 4n+1（VAE 时间下采样率 4），
+ * 且语音略长于画面时尾巴会被补静止帧，所以宁可多一帧也别少。
  * 返回值同时给出实际秒数，回写进结果里，避免用户对不上账。
  */
 export function framesForSeconds(seconds: number, fps: number): { frames: number; seconds: number; notes: string[] } {
@@ -55,6 +56,37 @@ export function framesForSeconds(seconds: number, fps: number): { frames: number
   }
   return { frames: planned.frames, seconds: planned.actualSeconds, notes }
 }
+
+/**
+ * 自动分级分辨率：帧数越多，端到端 InfiniteTalk 耗时超线性上涨。
+ * 本机 6GB 显存实测：832x480 下 41 帧≈7 分钟、77 帧≈卡死近 2 小时、121 帧≈超时 2 小时；
+ * 降到 512x320 后 77 帧≈3 分钟、121 帧≈12.5 分钟都能出片，口型清晰度无损。
+ * 因此短台词（≤60 帧）保持 832x480 高清；长台词（>60 帧）自动降到 512x320 保出片。
+ * 用户显式传了 width 或 height 时完全尊重，不自动改。
+ */
+export const TALKING_HD_MAX_FRAMES = 60
+export const TALKING_HD_SIZE = { width: 832, height: 480 }
+export const TALKING_LOWRES_SIZE = { width: 512, height: 320 }
+
+export function autoResolutionForFrames(
+  frames: number,
+  current: { width: number; height: number },
+  explicit: { width?: number; height?: number }
+): { width: number; height: number; note?: string } {
+  // 显式指定任一维 → 完全尊重（另一维已在 normalizeTalkingRequest 对齐）
+  if (explicit.width !== undefined || explicit.height !== undefined) {
+    return { width: current.width, height: current.height }
+  }
+  if (frames > TALKING_HD_MAX_FRAMES) {
+    return {
+      width: TALKING_LOWRES_SIZE.width,
+      height: TALKING_LOWRES_SIZE.height,
+      note: `台词较长（${frames} 帧），分辨率自动从 ${current.width}x${current.height} 降到 512x320 以保证按时出片；想用高清请显式传 width/height。`
+    }
+  }
+  return { width: current.width, height: current.height }
+}
+
 
 /**
  * 校验并规整 IndexTTS 的 8 维情绪向量。

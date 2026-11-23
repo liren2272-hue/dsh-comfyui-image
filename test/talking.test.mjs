@@ -1,13 +1,13 @@
 /**
- * generate_talking_video（台词 → 语音 → 说话视频 → 对口型）的测试。
+ * generate_talking_video（台词 → 语音 → 首帧 → InfiniteTalk 端到端口型）的测试。
  *
  * 分三层：
- *   1. **纯函数层**：参数归一、帧数对齐、命令拼装、MuseTalk 的 yaml/args —— 秒级，无副作用；
- *   2. **编排层**：用假 spawn 把「python 合成语音 / ffmpeg 转码 / ffprobe 量时长 /
- *      MuseTalk 出片」整条链跑一遍，验证「每一步真的用了上一步的产物」；
+ *   1. **纯函数层**：参数归一、帧数对齐、命令拼装、InfiniteTalk 工作流构建 —— 秒级，无副作用；
+ *   2. **编排层**：用假 spawn + 假 ComfyUI client 把「python 合成语音 / ffmpeg 转码 /
+ *      ffprobe 量时长 / 文生图首帧 / InfiniteTalk 出片」整条链跑一遍，验证「每一步真的用了上一步的产物」；
  *   3. **契约层**：工具 schema 只用 DSH 支持的子集，失败文案带 ❌。
  *
- * 假 spawn 的意义：真跑一次要 8~10 分钟，而这条链最贵的 bug 恰恰是「参数传错但跑得通」。
+ * 假 spawn / 假 client 的意义：真跑一次要 20 分钟以上，而这条链最贵的 bug 恰恰是「参数传错但跑得通」。
  */
 import './env-setup.mjs'
 import assert from 'node:assert/strict'
@@ -17,22 +17,24 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import {
-  buildMusetalkArgs,
-  buildMusetalkYaml,
+  autoResolutionForFrames,
+  buildInfiniteTalkWorkflow,
   createGenerateTalkingTool,
+  DEFAULT_INFINITETALK_NEGATIVE,
+  DEFAULT_INFINITETALK_PROMPT,
   DEFAULT_PORTRAIT_PROMPT,
   edgeTtsPlan,
   formatTalkingResult,
   framesForSeconds,
   INDEXTTS_EMO_ORDER,
   INDEXTTS_LANGS,
+  INFINITETALK_MODELS,
   indexttsTtsPlan,
   inferTalkingMode,
   isIndexTtsLang,
   isTalkingMode,
   isTtsEngine,
   MAX_SCRIPT_CHARS,
-  musetalkResultPath,
   normalizeTalkingRequest,
   normalizeWavPlan,
   parseDuration,
@@ -40,6 +42,8 @@ import {
   punctuateScript,
   renderTalkingResultText,
   runTalkingGeneration,
+  TALKING_HD_MAX_FRAMES,
+  TALKING_LOWRES_SIZE,
   TALKING_MODES,
   TALKING_OUTPUT_SCHEMA,
   TALKING_PARAMETERS_SCHEMA,
@@ -142,6 +146,31 @@ test('normalizeTalkingRequest：tts=edge 时 IndexTTS 专属参数不生效会�
   assert.ok(request.notes.some((note) => note.includes('不生效')))
 })
 
+test('autoResolutionForFrames：短台词保持高清、长台词降到 512x320', () => {
+  const hd = { width: 832, height: 480 }
+  // 临界 60 帧（含）保持高清
+  assert.deepEqual(autoResolutionForFrames(TALKING_HD_MAX_FRAMES, hd, {}), { width: 832, height: 480 })
+  // 61 帧起降级
+  const lo = autoResolutionForFrames(TALKING_HD_MAX_FRAMES + 1, hd, {})
+  assert.equal(lo.width, TALKING_LOWRES_SIZE.width)
+  assert.equal(lo.height, TALKING_LOWRES_SIZE.height)
+  assert.ok(lo.note && lo.note.includes('512x320'))
+  // 典型长台词 121 帧
+  const lo121 = autoResolutionForFrames(121, hd, {})
+  assert.equal(lo121.width, 512)
+  assert.equal(lo121.height, 320)
+})
+
+test('autoResolutionForFrames：显式传 width 或 height 时完全尊重，不自动降级', () => {
+  const hd = { width: 832, height: 480 }
+  // 显式场景下 current 已是归一化后的值（含用户传的那维）
+  assert.deepEqual(autoResolutionForFrames(172, { width: 1024, height: 480 }, { width: 1024 }), { width: 1024, height: 480 })
+  assert.deepEqual(autoResolutionForFrames(172, { width: 832, height: 576 }, { height: 576 }), { width: 832, height: 576 })
+  const explicit = autoResolutionForFrames(172, { width: 1024, height: 576 }, { width: 1024, height: 576 })
+  assert.deepEqual(explicit, { width: 1024, height: 576 })
+  assert.equal(explicit.note, undefined) // 尊重用户时不加降级说明
+})
+
 test('voiceLabelOf：两种引擎的标签都能复现音色', () => {
   const config = testConfig()
   const indexReq = normalizeTalkingRequest(
@@ -213,7 +242,7 @@ test('edgeTtsPlan：用 -m edge_tts，不用 Scripts\\*.exe', () => {
   assert.equal(plan.args[plan.args.indexOf('--write-media') + 1], 'a.mp3')
 })
 
-test('normalizeWavPlan：强制 16k 单声道（MuseTalk 的 whisper 特征按 16k 采）', () => {
+test('normalizeWavPlan：强制 16k 单声道（InfiniteTalk 的 wav2vec2 按 16k 采）', () => {
   const plan = normalizeWavPlan('ffmpeg', 'in.mp3', 'out.wav')
   assert.deepEqual(plan.args.slice(-7), ['-ar', '16000', '-ac', '1', '-sample_fmt', 's16', 'out.wav'])
 })
@@ -228,41 +257,62 @@ test('punctuateScript / parseDuration / parseSize', () => {
   assert.equal(parseSize('garbage'), undefined)
 })
 
-/* ───────────────────── MuseTalk 的 yaml 与参数 ───────────────────── */
+/* ───────────────────── InfiniteTalk 工作流构建 ───────────────────── */
 
-test('buildMusetalkYaml：反斜杠换成正斜杠，结构是 task_talk', () => {
-  const yaml = buildMusetalkYaml({
-    videoPath: 'D:\\Tools\\MuseTalk\\inputs\\a.mp4',
-    audioPath: 'D:\\Tools\\MuseTalk\\inputs\\b.wav',
-    resultName: 'out.mp4'
+test('buildInfiniteTalkWorkflow：14 节点齐全，首帧/音频/帧数接对了', () => {
+  const wf = buildInfiniteTalkWorkflow({
+    imageName: 'frame.png',
+    audioName: 'voice.wav',
+    frames: 81,
+    fps: 25,
+    width: 832,
+    height: 480,
+    seed: 42,
+    filenamePrefix: 'dsh_talk'
   })
-  assert.ok(yaml.startsWith('task_talk:\n'))
-  assert.ok(yaml.includes('video_path: D:/Tools/MuseTalk/inputs/a.mp4'))
-  assert.ok(yaml.includes('audio_path: D:/Tools/MuseTalk/inputs/b.wav'))
-  assert.ok(yaml.includes('result_name: out.mp4'))
+  assert.deepEqual(Object.keys(wf).sort(), Array.from({ length: 14 }, (_, i) => String(i + 1)).sort())
+  assert.equal(wf['1'].inputs.image, 'frame.png')
+  assert.equal(wf['2'].inputs.audio, 'voice.wav')
+  assert.equal(wf['10'].inputs.num_frames, 81)
+  assert.equal(wf['11'].inputs.frame_window_size, 81)
+  assert.equal(wf['10'].inputs.fps, 25)
+  assert.equal(wf['11'].inputs.width, 832)
+  assert.equal(wf['11'].inputs.height, 480)
+  assert.equal(wf['11'].inputs.mode, 'infinitetalk')
+  assert.equal(wf['14'].class_type, 'VHS_VideoCombine')
+  assert.equal(wf['14'].inputs.format, 'video/h264-mp4')
+  assert.deepEqual(wf['14'].inputs.audio, ['10', 1])
+  assert.equal(wf['14'].inputs.filename_prefix, 'dsh_talk')
 })
 
-test('buildMusetalkArgs：默认带 use_float16 与 jaw 模式，可关掉', () => {
-  const base = {
-    configPath: 'configs/inference/a.yaml',
-    unetModelPath: 'models/musetalkV15/unet.pth',
-    unetConfigPath: 'models/musetalkV15/musetalk.json',
-    whisperDir: 'models/whisper',
-    resultDir: 'results',
-    ffmpegPath: 'C:\\FFmpeg\\bin'
-  }
-  const args = buildMusetalkArgs(base)
-  assert.deepEqual(args.slice(0, 2), ['-m', 'scripts.inference'])
-  assert.equal(args[args.indexOf('--version') + 1], 'v15')
-  assert.equal(args[args.indexOf('--parsing_mode') + 1], 'jaw')
-  assert.ok(args.includes('--use_float16'))
-  const noFp16 = buildMusetalkArgs({ ...base, useFloat16: false })
-  assert.equal(noFp16.includes('--use_float16'), false)
+test('buildInfiniteTalkWorkflow：默认提示词/种子，6GB 关键的三个坑都避开', () => {
+  const wf = buildInfiniteTalkWorkflow({ imageName: 'a.png', audioName: 'b.wav', frames: 41 })
+  assert.equal(wf['9'].inputs.positive_prompt, DEFAULT_INFINITETALK_PROMPT)
+  assert.equal(wf['9'].inputs.negative_prompt, DEFAULT_INFINITETALK_NEGATIVE)
+  assert.equal(wf['12'].inputs.seed, 42)
+  assert.equal(wf['7'].inputs.merge_loras, false)
+  assert.equal(wf['9'].inputs.model_name, INFINITETALK_MODELS.textEncoder)
+  assert.ok(wf['9'].inputs.model_name.includes('bf16_dequant'))
+  assert.equal(wf['8'].inputs.attention_mode, 'sdpa')
+  assert.equal(wf['3'].inputs.model, INFINITETALK_MODELS.patchModel)
+  assert.equal(wf['8'].inputs.model, INFINITETALK_MODELS.mainModel)
+  assert.equal(wf['4'].inputs.model, INFINITETALK_MODELS.wav2vec2)
+  assert.equal(wf['12'].inputs.steps, 4)
+  assert.equal(wf['12'].inputs.cfg, 1)
 })
 
-test('musetalkResultPath：成片在 results/<version>/ 下，不是 resultDir 直下', () => {
-  assert.equal(musetalkResultPath('results', 'v15', 'a.mp4'), 'results/v15/a.mp4')
-  assert.equal(musetalkResultPath('results/', 'v15', 'a.mp4'), 'results/v15/a.mp4')
+test('buildInfiniteTalkWorkflow：自定义提示词生效，帧数能反映时长', () => {
+  const wf = buildInfiniteTalkWorkflow({
+    imageName: 'x.png',
+    audioName: 'y.wav',
+    frames: 161,
+    prompt: 'CUSTOM PROMPT',
+    negativePrompt: 'CUSTOM NEGATIVE'
+  })
+  assert.equal(wf['9'].inputs.positive_prompt, 'CUSTOM PROMPT')
+  assert.equal(wf['9'].inputs.negative_prompt, 'CUSTOM NEGATIVE')
+  assert.equal(wf['10'].inputs.num_frames, 161)
+  assert.equal(wf['11'].inputs.frame_window_size, 161)
 })
 
 /* ─────────────────────── 编排层（假 spawn） ─────────────────────── */
@@ -293,21 +343,93 @@ function argValue(args, flag) {
   return index >= 0 ? args[index + 1] : undefined
 }
 
-/** 造一条完整的假链路：语音→(假)图生视频→假 MuseTalk 出片。 */
+/** 假的 ComfyUI client：不真跑 GPU，按提交的工作流造一个 mp4 返回。 */
+function fakeComfyClient(chain, options = {}) {
+  const nodeInfo = {}
+  // reconcileWorkflow 需要 object_info；用一个足够真实的节点表，声明所有键都合法。
+  const wfNodeTypes = ['LoadImage', 'LoadAudio', 'MultiTalkModelLoader', 'Wav2VecModelLoader',
+    'WanVideoVAELoader', 'WanVideoBlockSwap', 'WanVideoLoraSelect', 'WanVideoModelLoader',
+    'WanVideoTextEncodeCached', 'MultiTalkWav2VecEmbeds', 'WanVideoImageToVideoMultiTalk',
+    'WanVideoSampler', 'WanVideoDecode', 'VHS_VideoCombine']
+  // reconcileWorkflow 只保留在 object_info 里声明过的输入键，所以这里为每个节点
+  // 声明它实际用到的全部输入（值类型任意，reconcile 只看键是否存在 / 是否枚举）。
+  const nodeInputs = {
+    LoadImage: ['image'],
+    LoadAudio: ['audio'],
+    MultiTalkModelLoader: ['model'],
+    Wav2VecModelLoader: ['model', 'base_precision', 'load_device'],
+    WanVideoVAELoader: ['model_name', 'precision', 'use_cpu_cache', 'verbose'],
+    WanVideoBlockSwap: ['blocks_to_swap', 'offload_img_emb', 'offload_txt_emb', 'use_non_blocking',
+      'vace_blocks_to_swap', 'prefetch_blocks', 'block_swap_debug'],
+    WanVideoLoraSelect: ['lora', 'strength', 'low_mem_load', 'merge_loras'],
+    WanVideoModelLoader: ['model', 'base_precision', 'quantization', 'load_device', 'attention_mode',
+      'block_swap_args', 'lora', 'multitalk_model', 'rms_norm_function'],
+    WanVideoTextEncodeCached: ['model_name', 'precision', 'positive_prompt', 'negative_prompt',
+      'quantization', 'use_disk_cache', 'device'],
+    MultiTalkWav2VecEmbeds: ['wav2vec_model', 'audio_1', 'normalize_loudness', 'num_frames',
+      'fps', 'audio_scale', 'audio_cfg_scale', 'multi_audio_type'],
+    WanVideoImageToVideoMultiTalk: ['vae', 'width', 'height', 'frame_window_size', 'motion_frame',
+      'force_offload', 'colormatch', 'start_image', 'mode', 'output_path'],
+    WanVideoSampler: ['model', 'image_embeds', 'steps', 'cfg', 'shift', 'seed', 'force_offload',
+      'scheduler', 'riflex_freq_index', 'text_embeds', 'multitalk_embeds', 'rope_function',
+      'start_step', 'end_step', 'add_noise_to_samples'],
+    WanVideoDecode: ['vae', 'samples', 'enable_vae_tiling', 'tile_x', 'tile_y', 'tile_stride_x', 'tile_stride_y'],
+    VHS_VideoCombine: ['images', 'frame_rate', 'loop_count', 'filename_prefix', 'format',
+      'pingpong', 'save_output', 'audio']
+  }
+  for (const type of wfNodeTypes) {
+    const required = {}
+    for (const key of nodeInputs[type]) required[key] = []
+    nodeInfo[type] = { input: { required, optional: {} } }
+  }
+  return {
+    url: 'http://127.0.0.1:8188',
+    systemStats: async () => ({}),
+    objectInfo: async () => nodeInfo,
+    uploadImage: async ({ filename }) => {
+      chain.uploaded.push(filename)
+      return { name: filename, subfolder: '', type: 'input' }
+    },
+    queuePrompt: async (workflow, clientId) => {
+      chain.submitted.push({ workflow, clientId })
+      return { promptId: options.promptId ?? 'fake-prompt-1' }
+    },
+    historyEntry: async () => {
+      if (options.noVideo) {
+        return { outputs: {}, status: { status_str: 'success', completed: true, messages: [] } }
+      }
+      if (options.historyError) {
+        return {
+          outputs: {},
+          status: {
+            status_str: 'error', completed: true,
+            messages: [['execution_error', { node_type: 'WanVideoSampler', node_id: '12', exception_message: 'CUDA out of memory' }]]
+          }
+        }
+      }
+      return {
+        outputs: {
+          '14': { gifs: [{ filename: 'infinitetalk.mp4', subfolder: '', type: 'output' }] }
+        },
+        status: { status_str: 'success', completed: true, messages: [] }
+      }
+    },
+    viewImage: async () => Buffer.from([0x00, 0x00, 0x00, 0x18]),
+    interrupt: async () => {}
+  }
+}
+
+/** 造一条完整的假链路：语音→(假)文生图首帧→假 InfiniteTalk 出片。 */
 function setupChain(options = {}) {
   const workRoot = tempDir('dsh-talk')
   const indexttsDir = path.join(workRoot, 'indextts')
-  const musetalkDir = path.join(workRoot, 'musetalk')
   const outDir = path.join(workRoot, 'out')
   fs.mkdirSync(indexttsDir, { recursive: true })
-  fs.mkdirSync(musetalkDir, { recursive: true })
   fs.mkdirSync(outDir, { recursive: true })
 
-  const seen = { musetalkArgs: null, wavBytes: 0, yaml: '', ttsArgs: null }
+  const seen = { wavBytes: 0, ttsArgs: null }
   const spawn = fakeSpawn((command, args) => {
-    if (command === 'ffprobe') {
-      return { stdout: options.duration ?? '5.616\n' }
-    }
+    if (command === 'ffprobe') return { stdout: options.duration ?? '5.616\n' }
     if (command === 'ffmpeg') {
       const out = args[args.length - 1]
       fs.writeFileSync(out, Buffer.from([0x52, 0x49, 0x46, 0x46]))
@@ -315,23 +437,11 @@ function setupChain(options = {}) {
     }
     const module = `${args[0] ?? ''} ${args[1] ?? ''}`
     if (args[0] === 'dsh_indextts_infer.py') {
-      // IndexTTS 的产物路径由 --output 指定（不像 Spark-TTS 自己编文件名）
       seen.ttsArgs = args
       const out = argValue(args, '--output')
       fs.mkdirSync(path.dirname(out), { recursive: true })
       fs.writeFileSync(out, Buffer.from('wav'))
       seen.wavBytes = 3
-      return {}
-    }
-    if (module === '-m scripts.inference') {
-      seen.musetalkArgs = args
-      const configPath = argValue(args, '--inference_config')
-      const fullYaml = path.join(musetalkDir, configPath)
-      seen.yaml = fs.readFileSync(fullYaml, 'utf8')
-      const name = /result_name:\s*(\S+)/.exec(seen.yaml)?.[1] ?? 'out.mp4'
-      const resultFile = path.join(musetalkDir, 'results', 'v15', name)
-      fs.mkdirSync(path.dirname(resultFile), { recursive: true })
-      fs.writeFileSync(resultFile, Buffer.from([0x00, 0x00, 0x00, 0x18]))
       return {}
     }
     if (module === '-m edge_tts') {
@@ -346,28 +456,26 @@ function setupChain(options = {}) {
     ttsSpkAudioPrompt: path.join(workRoot, 'ref.wav'),
     indexttsDir,
     indexttsPython: 'py-indextts',
-    musetalkDir,
-    musetalkPython: 'py-musetalk',
     ffmpeg: 'ffmpeg',
     ffprobe: 'ffprobe',
     writeMetadata: true
   })
 
-  const videoCalls = []
-  const runVideo = async (request) => {
-    videoCalls.push(request.args)
+  const imageCalls = []
+  const runImage = async (request) => {
+    imageCalls.push(request.args)
     const target = request.args.output_path
     fs.mkdirSync(path.dirname(target), { recursive: true })
-    fs.writeFileSync(target, Buffer.from('BASEVI'))
-    return { outputPaths: [target], promptId: 'fake-prompt-1', comfyUrl: config.baseUrl }
-  }
-  const runImage = async (request) => {
-    const target = request.args.output_path
     fs.writeFileSync(target, Buffer.from('PNG'))
     return { outputPaths: [target], promptId: 'fake-image-1' }
   }
 
-  return { workRoot, indexttsDir, musetalkDir, outDir, config, spawn, seen, runVideo, runImage, videoCalls }
+  const chain = {
+    workRoot, indexttsDir, outDir, config, spawn, seen, runImage, imageCalls,
+    uploaded: [], submitted: []
+  }
+  chain.client = fakeComfyClient(chain, options)
+  return chain
 }
 
 test('runTalkingGeneration：text2talking 全链路打通，产物与元数据齐全', async () => {
@@ -376,10 +484,10 @@ test('runTalkingGeneration：text2talking 全链路打通，产物与元数据�
     args: { script: '大家好，今天聊个小事。', seed: 42, output_path: path.join(chain.outDir, 'talk.mp4') },
     cwd: chain.outDir,
     config: chain.config,
-    deps: { spawn: chain.spawn, runVideo: chain.runVideo, runImage: chain.runImage }
+    deps: { spawn: chain.spawn, runImage: chain.runImage, client: chain.client }
   })
 
-  // ① 成片真的存在，且是「MuseTalk 的产物被拷过来」而不是空文件
+  // ① 成片真的存在，且是 InfiniteTalk 的产物被拷过来
   const output = path.join(chain.outDir, 'talk.mp4')
   assert.ok(fs.existsSync(output))
   assert.equal(fs.statSync(output).size, 4)
@@ -389,17 +497,26 @@ test('runTalkingGeneration：text2talking 全链路打通，产物与元数据�
   assert.equal(run.frames, 141) // (5.616 + 0.3) 秒 → 141 帧（4n+1）
   assert.ok(Math.abs(run.videoSeconds - 141 / 24) < 1e-9)
 
-  // ③ 图生视频那一步用的是「文字造出来的正脸首帧」和默认说话提示词
-  assert.equal(chain.videoCalls.length, 1)
-  const videoArgs = chain.videoCalls[0]
-  assert.equal(videoArgs.mode, 'img2video')
-  assert.ok(videoArgs.input_image.endsWith('keyframe.png'))
-  assert.ok(videoArgs.prompt.startsWith(DEFAULT_PORTRAIT_PROMPT.slice(0, 20)))
+  // ③ 文生图那步用的是「文字造出来的正脸首帧」和默认说话提示词
+  assert.equal(chain.imageCalls.length, 1)
+  const imageArgs = chain.imageCalls[0]
+  assert.equal(imageArgs.mode, 'text2img')
+  assert.ok(imageArgs.prompt.startsWith(DEFAULT_PORTRAIT_PROMPT.slice(0, 20)))
 
-  // ④ MuseTalk 拿到的 yaml 指向当前这条链的素材，参数带 v15 / jaw
-  assert.match(chain.seen.yaml, /result_name: out|result_name: dsh_talk_/)
-  assert.equal(argValue(chain.seen.musetalkArgs, '--version'), 'v15')
-  assert.equal(argValue(chain.seen.musetalkArgs, '--parsing_mode'), 'jaw')
+  // ④ 首帧图片与语音都上传了，提交的工作流帧数 = 141、种子 = 42
+  assert.equal(chain.uploaded.length, 2)
+  assert.ok(chain.uploaded[0].endsWith('.png'))
+  assert.ok(chain.uploaded[1].endsWith('_audio.wav'))
+  assert.equal(chain.submitted.length, 1)
+  const wf = chain.submitted[0].workflow
+  assert.equal(wf['10'].inputs.num_frames, 141)
+  assert.equal(wf['12'].inputs.seed, 42)
+  // 141 帧 > 60，自动分级应把宽高降到 512x320
+  assert.equal(wf['11'].inputs.width, 512)
+  assert.equal(wf['11'].inputs.height, 320)
+  assert.equal(run.width, 512)
+  assert.equal(run.height, 320)
+  assert.ok(run.notes.some((n) => n.includes('降到 512x320')))
 
   // ⑤ 元数据能复现这条片子
   const metadata = JSON.parse(fs.readFileSync(`${output}.json`, 'utf8'))
@@ -409,10 +526,35 @@ test('runTalkingGeneration：text2talking 全链路打通，产物与元数据�
   assert.equal(metadata.audio.seconds, 5.616)
   assert.equal(metadata.video.frames, 141)
   assert.equal(metadata.comfy.promptId, 'fake-prompt-1')
-  assert.ok(metadata.notes.some((note) => note.includes('口型已重绘')))
+  assert.equal(metadata.lipsync.engine, 'infinitetalk')
+  assert.ok(metadata.notes.some((note) => note.includes('端到端生成完成')))
 })
 
-test('runTalkingGeneration：video2talking 跳过图生视频，只跑语音 + 口型', async () => {
+test('runTalkingGeneration：短台词保持 832x480 高清，显式 width 覆盖生效', async () => {
+  // duration 1.0s（+0.3 余量）→ 约 33 帧 ≤ 60，保持高清
+  const short = setupChain({ duration: '1.0\n' })
+  const runShort = await runTalkingGeneration({
+    args: { script: '你好。', seed: 1, output_path: path.join(short.outDir, 'short.mp4') },
+    cwd: short.outDir, config: short.config,
+    deps: { spawn: short.spawn, runImage: short.runImage, client: short.client }
+  })
+  assert.equal(runShort.width, 832)
+  assert.equal(runShort.height, 480)
+  assert.equal(short.submitted[0].workflow['11'].inputs.width, 832)
+
+  // 显式 width=1024 → 尊重，即使长台词也不降级
+  const explicit = setupChain()
+  const runExplicit = await runTalkingGeneration({
+    args: { script: '大家好，今天聊个小事。', width: 1024, seed: 2, output_path: path.join(explicit.outDir, 'exp.mp4') },
+    cwd: explicit.outDir, config: explicit.config,
+    deps: { spawn: explicit.spawn, runImage: explicit.runImage, client: explicit.client }
+  })
+  assert.equal(runExplicit.width, 1024)
+  assert.equal(explicit.submitted[0].workflow['11'].inputs.width, 1024)
+  assert.ok(!runExplicit.notes.some((n) => n.includes('降到 512x320')))
+})
+
+test('runTalkingGeneration：video2talking 抽首帧重生成，不跑文生图', async () => {
   const chain = setupChain()
   const sourceVideo = path.join(chain.workRoot, 'source.mp4')
   fs.writeFileSync(sourceVideo, Buffer.from('SOURCEVIDEO'))
@@ -420,11 +562,13 @@ test('runTalkingGeneration：video2talking 跳过图生视频，只跑语音 + �
     args: { script: '换一句台词。', input_video: sourceVideo, output_path: path.join(chain.outDir, 'relip.mp4') },
     cwd: chain.outDir,
     config: chain.config,
-    deps: { spawn: chain.spawn, runVideo: chain.runVideo, runImage: chain.runImage }
+    deps: { spawn: chain.spawn, runImage: chain.runImage, client: chain.client }
   })
   assert.equal(run.mode, 'video2talking')
-  assert.equal(chain.videoCalls.length, 0)
+  assert.equal(chain.imageCalls.length, 0) // 不调文生图
   assert.ok(fs.existsSync(path.join(chain.outDir, 'relip.mp4')))
+  assert.ok(run.notes.some((n) => n.includes('抽取首帧')))
+  assert.equal(run.baseVideoPath, sourceVideo)
 })
 
 test('runTalkingGeneration：edge-tts 路径也能走通', async () => {
@@ -433,38 +577,37 @@ test('runTalkingGeneration：edge-tts 路径也能走通', async () => {
     args: { script: '看晓晓说话。', tts: 'edge', edge_voice: 'zh-CN-XiaoxiaoNeural', output_path: path.join(chain.outDir, 'edge.mp4') },
     cwd: chain.outDir,
     config: chain.config,
-    deps: { spawn: chain.spawn, runVideo: chain.runVideo, runImage: chain.runImage }
+    deps: { spawn: chain.spawn, runImage: chain.runImage, client: chain.client }
   })
   assert.equal(run.request.tts, 'edge')
   assert.match(run.voiceLabel, /edge-tts.*Xiaoxiao/)
 })
 
-test('runTalkingGeneration：MuseTalk 没产出成片 → 明确报错，不假装成功', async () => {
-  const chain = setupChain()
-  const spawn = fakeSpawn((command, args) => {
-    if (command === 'ffprobe') return { stdout: '2.0\n' }
-    if (command === 'ffmpeg') {
-      fs.writeFileSync(args[args.length - 1], Buffer.from('wav'))
-      return {}
-    }
-    const module = `${args[0] ?? ''} ${args[1] ?? ''}`
-    if (args[0] === 'dsh_indextts_infer.py') {
-      fs.writeFileSync(argValue(args, '--output'), Buffer.from('wav'))
-      return {}
-    }
-    // scripts.inference 故意不写产物
-    return {}
-  })
+test('runTalkingGeneration：ComfyUI 没产出视频 → 明确报错，不假装成功', async () => {
+  const chain = setupChain({ noVideo: true })
   await assert.rejects(
     runTalkingGeneration({
       args: { script: '你好。', output_path: path.join(chain.outDir, 'nope.mp4') },
       cwd: chain.outDir,
       config: chain.config,
-      deps: { spawn, runVideo: chain.runVideo, runImage: chain.runImage }
+      deps: { spawn: chain.spawn, runImage: chain.runImage, client: chain.client }
     }),
-    /没有产出成片/
+    /没有产出视频文件/
   )
   assert.equal(fs.existsSync(path.join(chain.outDir, 'nope.mp4')), false)
+})
+
+test('runTalkingGeneration：ComfyUI 执行错误时把节点与原因带出来', async () => {
+  const chain = setupChain({ historyError: true })
+  await assert.rejects(
+    runTalkingGeneration({
+      args: { script: '你好。', output_path: path.join(chain.outDir, 'err.mp4') },
+      cwd: chain.outDir,
+      config: chain.config,
+      deps: { spawn: chain.spawn, runImage: chain.runImage, client: chain.client }
+    }),
+    /CUDA out of memory/
+  )
 })
 
 test('runTalkingGeneration：TTS 非零退出时把 stderr 末行带出来', async () => {
@@ -480,24 +623,24 @@ test('runTalkingGeneration：TTS 非零退出时把 stderr 末行带出来', asy
       args: { script: '你好。', output_path: path.join(chain.outDir, 'x.mp4') },
       cwd: chain.outDir,
       config: chain.config,
-      deps: { spawn, runVideo: chain.runVideo, runImage: chain.runImage }
+      deps: { spawn, runImage: chain.runImage, client: chain.client }
     }),
     /模型目录不完整/
   )
 })
 
-test('runTalkingGeneration：input_image 不存在 → 立刻报错（不白跑图生视频）', async () => {
+test('runTalkingGeneration：input_image 不存在 → 立刻报错（不白跑文生图）', async () => {
   const chain = setupChain()
   await assert.rejects(
     runTalkingGeneration({
       args: { script: '你好。', input_image: path.join(chain.workRoot, 'missing.png'), output_path: path.join(chain.outDir, 'y.mp4') },
       cwd: chain.outDir,
       config: chain.config,
-      deps: { spawn: chain.spawn, runVideo: chain.runVideo, runImage: chain.runImage }
+      deps: { spawn: chain.spawn, runImage: chain.runImage, client: chain.client }
     }),
     /找不到 input_image/
   )
-  assert.equal(chain.videoCalls.length, 0)
+  assert.equal(chain.imageCalls.length, 0)
 })
 
 /* ─────────────────────────── 契约层 ─────────────────────────── */
@@ -581,13 +724,13 @@ test('两句台词走同一套默认配置时，语音文件名取最新的那�
     args: { script: '第一句。', output_path: path.join(chain.outDir, 'one.mp4') },
     cwd: chain.outDir,
     config: chain.config,
-    deps: { spawn: chain.spawn, runVideo: chain.runVideo, runImage: chain.runImage }
+    deps: { spawn: chain.spawn, runImage: chain.runImage, client: chain.client }
   })
   const second = await runTalkingGeneration({
     args: { script: '第二句。', output_path: path.join(chain.outDir, 'two.mp4') },
     cwd: chain.outDir,
     config: chain.config,
-    deps: { spawn: chain.spawn, runVideo: chain.runVideo, runImage: chain.runImage }
+    deps: { spawn: chain.spawn, runImage: chain.runImage, client: chain.client }
   })
   assert.notEqual(first.audioPath, second.audioPath)
   assert.ok(fs.existsSync(path.join(chain.outDir, 'one.mp4')))

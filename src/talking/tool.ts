@@ -18,15 +18,17 @@ import { MAX_SCRIPT_CHARS } from './params.js'
 import { runTalkingGeneration } from './runner.js'
 import { formatTalkingResult, renderTalkingFailureText, type TalkingToolResult } from './result.js'
 
-export const TALKING_TOOL_NAME = 'generate_talking_video'
+export const TALKING_TOOL_NAME = 'comfyui_generate_talking_video'
 
 export const TALKING_TOOL_DESCRIPTION = [
-  '生成一段「人在说话、口型对得上」的视频：台词 → AI 语音 → 说话画面 → 口型对齐，全自动。',
+  '生成一段「人在说话、口型对得上」的视频：台词 → AI 语音 → 首帧人像 → InfiniteTalk 端到端生成带口型视频，全自动。',
+  '',
+  '口型方案：InfiniteTalk（端到端音频驱动，嘴随画面整体生成，无局部贴回/边缘模糊）。',
   '',
   '模式 mode（不传则按输入推断）：',
-  '  text2talking   只给台词：先造一张正脸人像，再生成说话画面，最后对口型。',
-  '  image2talking  台词 + input_image（人像图）：拿这张图当首帧。',
-  '  video2talking  台词 + input_video（已有说话视频）：只重绘嘴部，最省时间（跳过图生视频）。',
+  '  text2talking   只给台词：先造一张正脸人像，再端到端生成说话视频。',
+  '  image2talking  台词 + input_image（人像图）：拿这张图当首帧，端到端生成说话视频。',
+  '  video2talking  台词 + input_video（已有视频）：抽首帧后端到端重生成口型（源视频原有动作不会保留）。',
   '',
   '推断规则：有 input_video → video2talking；有 input_image → image2talking；都没有 → text2talking。',
   '显式指定模式却缺对应输入会直接报错，不会猜。',
@@ -37,15 +39,14 @@ export const TALKING_TOOL_DESCRIPTION = [
   '                 emo_alpha 调情绪强度，lang 选 ZH/EN，duration_factor 调语速。约 2~4 分钟。',
   '  edge          edge-tts 现成音色，用 edge_voice（如 zh-CN-XiaoxiaoNeural）+ rate（如 -4%）调，秒出。',
   '',
-  '耗时（本机 6GB 显存实测）：语音 indextts 约 2~4 分钟（edge 几秒）；图生视频 2 秒 ≈ 3.5 分钟；对口型约 2.5 分钟。',
-  '  所以 text2talking 一条 5 秒的视频大约 8~12 分钟，video2talking 换音色重做只要 3~6 分钟。',
-  '  台词按秒计费：1 秒 ≈ 2.8 分钟，一次别超过 20 秒；长内容请分段生成再拼。',
+  '耗时（本机 6GB 显存实测）：语音 indextts 约 2~4 分钟（edge 几秒）；InfiniteTalk 81 帧 / 4 步约 21 分钟。',
+  '  所以一条视频大约 25 分钟起步；台词按秒计费，一次别超过 20 秒（帧数需 4n+1 对齐）；长内容请分段生成再拼。',
   '',
   '用法要点：',
   '  - 返回文本里的「视频：<绝对路径>」就是成片（mp4，含音轨），可以直接引用给用户。',
-  '  - 换台词/换音色但想保留画面：把上次的成片当 input_video 再调一次（video2talking）。',
-  '  - 口型是 256px 区域重建再贴回，嘴部边缘会有轻微柔化，这是 MuseTalk 的固有特性。',
-  '  - 需要 ComfyUI（127.0.0.1:8188）、MuseTalk 与 TTS 环境就位；缺什么会明确报错并说缺哪个。',
+  '  - 换台词/换音色：直接重跑（video2talking 会抽旧片首帧重生成口型，不保留旧动作）。',
+  '  - 口型是端到端生成的，不经过局部贴图，嘴部边缘自然清晰（这是相对旧 MuseTalk 方案的主要改进）。',
+  '  - 需要 ComfyUI（127.0.0.1:8188）、WanVideoWrapper + InfiniteTalk 模型与 TTS 环境就位；缺什么会明确报错并说缺哪个。',
   '  - 只要画面不要声音：用 generate_video。只要图片：用 generate_image。'
 ].join('\n')
 

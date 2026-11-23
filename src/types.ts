@@ -204,14 +204,31 @@ export interface PluginConfigInput {
   /** IndexTTS 仓库根与其 venv 解释器。 */
   indexttsDir?: string
   indexttsPython?: string
-  /** MuseTalk 仓库根与其 venv 解释器（edge-tts 也装在这里）。 */
-  musetalkDir?: string
-  musetalkPython?: string
-  /** ffmpeg 目录（MuseTalk 的 --ffmpeg_path 用）与两个可执行文件命令。 */
+  /** ffmpeg 目录与两个可执行文件命令。 */
   ffmpegBin?: string
   ffmpeg?: string
   ffprobe?: string
   talkingTimeoutMs?: number
+
+  /* ── 音乐生成（generate_music / ACE-Step 1.5 AIO）── */
+  /** ACE-Step 1.5 turbo AIO 单文件名（ComfyUI models/checkpoints 下）。 */
+  musicCheckpoint?: string
+  musicTimeoutMs?: number
+  musicFormat?: string
+  musicSteps?: number
+  musicCfg?: number
+  musicSampler?: string
+  musicScheduler?: string
+  musicBpm?: number
+  musicKeyScale?: string
+  musicLanguage?: string
+  musicMaxDuration?: number
+
+  /* ── 语音识别（transcribe_audio / Whisper）── */
+  transcribePython?: string
+  transcribeModel?: string
+  transcribeDevice?: string
+  transcribeTimeoutMs?: number
 }
 
 /**
@@ -264,10 +281,27 @@ export interface ResolvedConfig {
   edgeRate: string
   indexttsDir: string
   indexttsPython: string
-  musetalkDir: string
-  musetalkPython: string
   ffmpegBin: string
   ffmpeg: string
   ffprobe: string
   talkingTimeoutMs: number
+
+  /* ── 音乐生成（generate_music / ACE-Step 1.5 AIO）── */
+  musicCheckpoint: string
+  musicTimeoutMs: number
+  musicFormat: string
+  musicSteps: number
+  musicCfg: number
+  musicSampler: string
+  musicScheduler: string
+  musicBpm: number
+  musicKeyScale: string
+  musicLanguage: string
+  musicMaxDuration: number
+
+  /* ── 语音识别（transcribe_audio / Whisper）── */
+  transcribePython: string
+  transcribeModel: string
+  transcribeDevice: string
+  transcribeTimeoutMs: number
 }

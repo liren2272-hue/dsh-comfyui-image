@@ -1,7 +1,7 @@
 /**
  * 「独立音频生成」工具（generate_audio）的类型与常量。
  *
- * 这条链只做一件事：台词（文本）→ 语音 wav，不碰 ComfyUI 画面、不碰 MuseTalk 口型。
+ * 这条链只做一件事：台词（文本）→ 语音 wav，不碰 ComfyUI 画面、不碰 InfiniteTalk 口型。
  * 避免只为了配音跑完整 video2talking 链路（图生视频 + 对口型），浪费几分钟 GPU 时间。
  *
  * 两个引擎（复用 talking/tts.ts 的命令规划器）：

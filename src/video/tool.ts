@@ -24,7 +24,7 @@ import { runVideoGeneration } from './runner.js'
 import { formatVideoResult, renderVideoFailureText, type VideoToolResult } from './result.js'
 import type { GenerateVideoArgs } from './types.js'
 
-export const VIDEO_TOOL_NAME = 'generate_video'
+export const VIDEO_TOOL_NAME = 'comfyui_generate_video'
 
 /**
  * 给模型看的工具说明。

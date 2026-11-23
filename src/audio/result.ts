@@ -36,7 +36,7 @@ export function renderAudioResultText(result: AudioToolResult): string {
     for (const note of result.notes) lines.push(`  - ${note}`)
   }
   lines.push('')
-  lines.push('提示：这个工具只生成语音 wav，不碰 ComfyUI 画面和 MuseTalk 口型。如需对口型视频，请用 generate_talking_video。')
+  lines.push('提示：这个工具只生成语音 wav，不碰 ComfyUI 画面和 InfiniteTalk 口型。如需对口型视频，请用 generate_talking_video。')
   return lines.join('\n')
 }
 

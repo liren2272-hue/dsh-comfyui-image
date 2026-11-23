@@ -6,8 +6,8 @@
  *     还能用 emo_vector / emo_audio_prompt 控制情绪。本地跑，单条 2~4 分钟。
  *   - edge：现成音色，秒出，但只有固定的十几个嗓子。
  *
- * 为什么不直接用 edge-tts 的 wav：它只出 mp3，而且 MuseTalk 对 16k 单声道 wav 最稳
- * （官方示例就是 16k wav），所以两个引擎最后都过一遍 ffmpeg 归一到同一种格式。
+ * 为什么不直接用 edge-tts 的 wav：它只出 mp3，而且 InfiniteTalk 的 wav2vec2 音频编码器
+ * 按 16k 采样，所以两个引擎最后都过一遍 ffmpeg 归一到 16k 单声道 wav。
  *
  * 本文件只做「命令怎么拼」，不起进程——拼错了可以在单测里立刻发现，不用等 3 分钟。
  */
@@ -109,7 +109,7 @@ export function edgeTtsArgs(options: Pick<EdgeTtsOptions, 'voice' | 'rate' | 'pi
   return args
 }
 
-/** ffmpeg 归一到 16kHz 单声道（MuseTalk 的 whisper 特征就是按这个采的）。 */
+/** ffmpeg 归一到 16kHz 单声道（InfiniteTalk 的 wav2vec2 音频编码器就是按这个采的）。 */
 export function normalizeWavPlan(ffmpeg: string, input: string, output: string): CommandPlan {
   return {
     command: ffmpeg,

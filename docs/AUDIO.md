@@ -5,8 +5,8 @@
 ## 一、为什么要把配音单独拆出来
 
 前面三个工具（`comfyui_generate_image` / `comfyui_generate_video` / `comfyui_generate_talking_video`）最终都要经过 ComfyUI 出画面。
-而 `comfyui_generate_talking_video` 是**三段**：`① TTS → ② Wan2.2 图生视频（无声说话画面）→ ③ MuseTalk 只重绘嘴部`。
-哪怕你只想要一条配音，它也会老老实实把 ② 和 ③ 跑完——那是几分钟到十几分钟的开销，而你要的东西在第①段就做完了。
+而 `comfyui_generate_talking_video` 是**两段式端到端**：`① TTS → ② InfiniteTalk 一次生成带口型视频`（首帧由文生图 / 你提供 / 抽视频帧得到）。
+哪怕你只想要一条配音，它也会老老实实把后面的 InfiniteTalk 生成跑完——那是二十分钟量级的开销，而你要的东西在第①段就做完了。
 
 所以这个工具做的事只有一件：
 

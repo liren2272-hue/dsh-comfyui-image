@@ -8,15 +8,17 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org/)
 [![npm](https://img.shields.io/npm/v/dsh-comfyui-image?label=npm)](https://www.npmjs.com/package/dsh-comfyui-image)
 
-给 **DeepSeek Harness**（DSH）补上**图片 / 视频 / 说话视频 / 纯配音**生成能力的插件：
-后端接**本地 ComfyUI**，对外暴露**四个** Agent 工具 ——
+给 **DeepSeek Harness**（DSH）补上**图片 / 视频 / 说话视频 / 纯配音 / 背景音乐 / 语音识别**能力的插件：
+后端接**本地 ComfyUI**，对外暴露**六个** Agent 工具 ——
 
 | 工具 | 干什么 |
 |---|---|
 | `comfyui_generate_image` | 文生图、图生图、局部重绘、背景移除四合一 |
 | `comfyui_generate_video` | 文生视频、图生视频（Wan2.2 TI2V-5B） |
-| `comfyui_generate_talking_video` | 台词 → TTS → 说话画面 → MuseTalk 对口型 |
+| `comfyui_generate_talking_video` | 台词 → TTS → 首帧 → InfiniteTalk 端到端对口型 |
 | `comfyui_generate_audio` | 台词 → 16kHz wav，**只配音不碰画面** |
+| `comfyui_generate_music` | 无人声纯背景音乐（ACE-Step 1.5 AIO，lyrics 留空） |
+| `comfyui_transcribe_audio` | 语音转文字（Whisper large-v3，CUDA 失败回退 CPU） |
 
 不依赖任何外部商业 API，运行时**零第三方依赖**（只用 Node 内置的 `fetch` / `FormData`）。
 
@@ -89,13 +91,13 @@ DSH 本身没有出图 / 出片 / 配音能力，而 Agent 又经常需要「画
 
 | 模式 `mode` | 输入 | 干什么 |
 |---|---|---|
-| `text2talking` | `script` | 文字 → 生成人像 → 说话 → 对口型（最慢，约 8~12 分钟） |
-| `image2talking` | `script` + `input_image` | 图片里的人开口说话（约 6~9 分钟） |
-| `video2talking` | `script` + `input_video` | 给已有视频换口型 / 换音色（最快，约 3~6 分钟） |
+| `text2talking` | `script` | 文生图造首帧 → TTS → InfiniteTalk（约 20+ 分钟） |
+| `image2talking` | `script` + `input_image` | 图片作首帧 → TTS → InfiniteTalk（约 20 分钟） |
+| `video2talking` | `script` + `input_video` | 抽视频首帧 → InfiniteTalk 重新生成，不保留原动作（约 20 分钟） |
 
-分三段跑：**TTS（IndexTTS-2 克隆音色 / edge-tts）→ 说话画面（ComfyUI）→ 对口型（MuseTalk 1.5）**。
+端到端一次生成：**TTS（IndexTTS-2 克隆音色 / edge-tts）→ 首帧 → InfiniteTalk 一次生成带口型视频**，没有「无声视频 + 贴嘴」两步，也没有嘴部边缘柔化。
 音色由 `spk_audio_prompt` 指向的一段 3~15 秒参考音频决定；`emo_vector` / `emo_alpha` / `emo_audio_prompt`
-可以加情绪。完整说明（含为什么必须分三段、踩过的坑、能力边界）见 [docs/TALKING.md](./docs/TALKING.md)。
+可以加情绪。完整说明（含三种模式、模型清单、踩过的坑、能力边界）见 [docs/TALKING.md](./docs/TALKING.md)。
 
 ### `comfyui_generate_audio` —— 只配音
 
@@ -125,8 +127,8 @@ DSH 本身没有出图 / 出片 / 配音能力，而 Agent 又经常需要「画
 |---|---|
 | `comfyui_generate_image` | 底模（`models/checkpoints/`） |
 | `comfyui_generate_video` | Wan2.2 TI2V-5B（`models/diffusion_models/` 或 `unet/`，GGUF 也行）+ `umt5_xxl` 文本编码器 + `Wan2.2_VAE` + ComfyUI 带 `Wan22ImageToVideoLatent` / `ModelSamplingSD3` / `CreateVideo` / `SaveVideo` 四个节点 |
-| `comfyui_generate_talking_video` | IndexTTS-2 仓库与 venv + 参考音频；MuseTalk 1.5 仓库与 venv；`ffmpeg` / `ffprobe`（或在 `ffmpegBin` 里指） |
-| `comfyui_generate_audio` | 同 TTS 那一条（不需要 ComfyUI 与 MuseTalk） |
+| `comfyui_generate_talking_video` | IndexTTS-2 仓库与 venv + 参考音频；ComfyUI-WanVideoWrapper + InfiniteTalk 六个模型（见 TALKING.md）；`ffmpeg` / `ffprobe`（或在 `ffmpegBin` 里指） |
+| `comfyui_generate_audio` | 同 TTS 那一条（不需要 ComfyUI 与 InfiniteTalk 模型） |
 
 > 背景移除是**唯一**需要额外节点的图片功能。装下面**任意一套**即可（插件按此顺序自动择优）：
 > `ComfyUI_essentials`（`RemBGSession+` → `ImageRemoveBackground+`）、`ComfyUI-BRIA_AI-RMBG`、
@@ -138,7 +140,7 @@ DSH 本身没有出图 / 出片 / 配音能力，而 Agent 又经常需要「画
 > `models/background_removal/` 模型）。它与插件现有的「一张图进、一张图出」路径不同，**暂未接入**，
 > 见 [docs/ROADMAP.md](./docs/ROADMAP.md)。
 >
-> TTS 与 MuseTalk 的装法、权重放哪、参考音频怎么挑，见 [docs/TALKING.md](./docs/TALKING.md) 第三、四节。
+> TTS 与 InfiniteTalk 模型的装法、权重放哪、参考音频怎么挑，见 [docs/TALKING.md](./docs/TALKING.md) 第三、四节。
 
 ## 安装
 
@@ -219,7 +221,7 @@ git clone <本仓库> dsh-comfyui-image
 cd dsh-comfyui-image
 npm install          # 只装 typescript 与 @types/node（开发用）
 npm run build        # 改过 src/ 才需要；lib/ 已随仓库提交
-npm test             # 160 项测试，自带 mock ComfyUI，不需要真装 ComfyUI
+npm test             # 164 项测试，自带 mock ComfyUI，不需要真装 ComfyUI
 ```
 
 之后按方式 B / C 把它 link 进 profile 即可。
@@ -328,8 +330,6 @@ ComfyUI：http://127.0.0.1:8188（prompt_id=8f3c…）
   "ttsSpkAudioPrompt": "D:/Tools/IndexTTS/ref_audio_voice.wav",
   "indexttsDir": "D:/Tools/IndexTTS",
   "indexttsPython": "D:/Tools/IndexTTS/.venv/Scripts/python.exe",
-  "musetalkDir": "D:/Tools/MuseTalk",
-  "musetalkPython": "D:/Tools/MuseTalk/venv/Scripts/python.exe",
   "ffmpegBin": "C:/FFmpeg/bin"
 }
 ```
@@ -489,7 +489,7 @@ V1 没内置的能力（**扩图 outpaint、超分 upscale、批量多图、特�
 | 报「本机没有可用的 Wan 视频模型」 | Wan2.2 TI2V-5B 没放对位置；`models/diffusion_models/`（或 `unet/`）里要有它 |
 | 视频出来的时长跟 `seconds` 不一致 | 正常：帧数按 4n+1 对齐，真实时长看返回的 `frames / fps` |
 | 报「IndexTTS 合成语音失败」 | 看 hint 里那三条：`indexttsPython` 存在吗、`indexttsDir` 是不是仓库根、参考音频在不在 |
-| 报「MuseTalk 没有产出成片」 | 去 `MuseTalk/results/v15/` 看有没有文件；常见是 `ffmpeg` 不在 PATH（插件已把 `ffmpegBin` 加进去，但要真有 `ffmpeg.exe`） |
+| 报「InfiniteTalk 没有产出成片」 | 确认 ComfyUI-WanVideoWrapper 与六个模型都装齐（见 TALKING.md）；6GB 显卡要按 sdpa + bf16_dequant + merge_loras=false + block swap 配；若报 `'NoneType' object is not subscriptable` 需重打 transformers 5.x 的 wav2vec2 补丁 |
 | 口型对上了但音色不对 | 音色由 `spk_audio_prompt` 决定，换那段参考音频；`tts=edge` 时用 `edge_voice` |
 | 出图 / 出片很慢 / 超时 | 调大 `timeoutMs`（图片）或 `videoTimeoutMs` / `talkingTimeoutMs`，或把 `steps` / 尺寸调小 |
 | 改了 `config.json` 好像没生效 | 那一项是不是也在 profile 的插件 `config:` 里写了？插件配置优先级更高 |
@@ -523,14 +523,14 @@ src/
   talking/            台词 → 语音 → 说话画面 → 对口型
     tts.ts            TTS 命令行拼装（IndexTTS-2 / edge-tts）+ wav 归一化 + ffprobe 量长
     exec.ts           子进程执行（永不 reject，超时 / abort / error 都归一成退出码）
-    lipsync.ts        MuseTalk 的 yaml 与 argv 拼装
+    lipsync.ts        InfiniteTalk 工作流与模型路径拼装
     params.ts         台词长度、模式推断、宽高对齐、音色标签
     runner.ts         三段串联 + 中间产物目录 + 元数据
     tool.ts / result.ts / types.ts
   audio/              只配音（复用 talking/tts.ts 的 TTS 链路，不碰画面）
     runner.ts / tool.ts / result.ts / tts.ts / types.ts
 lib/                  TypeScript 编译产物（**故意提交**：不装 TS 也能直接跑）
-test/                 160 项测试 + mock ComfyUI（真 PNG 编解码、真上传、真轮询、真报错路径，含假 mp4 与假 TTS/MuseTalk 子进程）
+test/                 164 项测试 + mock ComfyUI（真 PNG 编解码、真上传、真轮询、真报错路径，含假 mp4 与假 TTS/InfiniteTalk 子进程）
 scripts/run-tests.mjs 测试入口
 scripts/doctor.mjs    自检脚本
 docs/                 安装 / 配置 / 用法 / 参数 / 说话视频 / 配音 / FAQ / 路线图
@@ -549,7 +549,7 @@ docs/                 安装 / 配置 / 用法 / 参数 / 说话视频 / 配音 
 npm install
 npm run build      # tsc → lib/
 npm run typecheck  # 只检查不产出
-npm test           # 160 项测试（自带 mock ComfyUI + 假 TTS/MuseTalk 子进程）
+npm test           # 164 项测试（自带 mock ComfyUI + 假 TTS/InfiniteTalk 子进程）
 npm run doctor     # 对着真实 ComfyUI 体检
 ```
 
@@ -572,7 +572,7 @@ V1 之后的计划（超分 / 扩图 / 批量 / 多后端 / 一致性）见 [doc
 | [docs/INSTALL.md](./docs/INSTALL.md)（英文：[INSTALL.en.md](./docs/INSTALL.en.md)） | 安装教程：ComfyUI（含 Windows / Intel 显卡）+ 插件安装 + 去背节点 |
 | [docs/CONFIG.md](./docs/CONFIG.md) | 配置说明：四层优先级、全部键表、环境变量、示例 |
 | [docs/USAGE.md](./docs/USAGE.md) | 使用示例：四种图片模式 + 复现 / 微调 + 自定义工作流 + 只要配音 |
-| [docs/TALKING.md](./docs/TALKING.md) | 说话视频：为什么分三段、三种模式、TTS / 说话画面 / MuseTalk 怎么装、耗时实测、踩过的坑 |
+| [docs/TALKING.md](./docs/TALKING.md) | 说话视频：端到端流程、三种模式、TTS / InfiniteTalk 模型怎么装、耗时实测、踩过的坑 |
 | [docs/AUDIO.md](./docs/AUDIO.md) | 纯配音：参数、两个 TTS 引擎、用 IndexTTS 表达情绪、输出与边界 |
 | [docs/EMOTION_TTS_SELECTION.md](./docs/EMOTION_TTS_SELECTION.md) | 情绪配音选型：IndexTTS-2 与 edge-tts 的能力对照与取舍 |
 | [docs/PARAMS.md](./docs/PARAMS.md) | 工具参数与输出结构逐项说明 |

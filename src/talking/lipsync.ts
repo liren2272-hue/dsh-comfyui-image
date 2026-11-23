@@ -1,114 +1,246 @@
 /**
- * MuseTalk 1.5（口型重绘）的三件套：推理用的 yaml、命令行参数、成片路径。
+ * InfiniteTalk（端到端音频驱动口型）工作流的构造器。
  *
- * 本文件只做「字符串怎么拼」，不起进程、不碰文件——拼错了能在单测里立刻发现，
- * 不用等 10 分钟 GPU 跑完才知道参数写歪了。
+ * 新方案与旧的 MuseTalk 有本质区别：
+ *   - MuseTalk 是「先生成无声视频 → 局部 256px 重绘再贴回」，嘴部边缘有贴片感/模糊；
+ *   - InfiniteTalk 是「一张静帧 + 一段语音 → 端到端生成带口型视频」，没有局部贴回，
+ *     嘴随画面整体生成，边缘自然。
  *
- * 两个必须知道的坑（都不是我们写错，是官方脚本的固有行为）：
+ * 这里只做「工作流长什么样」的纯数据拼装：不起进程、不上传、不轮询，拼错了能在
+ * 单测里立刻发现，不用等 21 分钟 GPU 跑完才知道参数写歪了。
  *
- *   1. **`scripts/inference.py` 拼 ffmpeg 命令时没加引号**。
- *      它内部直接写成 `-i {video_path}`，路径里只要有空格（`C:\Program Files\...`
- *      或者用户名带空格），ffmpeg 收到的就是被拆开的多个参数，表现为「读到 0 帧」
- *      或者干脆报 `No such file or directory`。所以素材必须先拷进
- *      `<musetalkDir>/inputs/` 这种无空格目录再跑（编排层 runner.ts 就是这么做的）。
+ * 模板来自本机实拍成功的 14 节点链（WanVideoWrapper GGUF Q3_K_S 主模型 +
+ * InfiniteTalk Single Q4_K_M patch + lightx2v 4 步 LoRA + sdpa attention），
+ * 6GB 显存 RTX 3060 Laptop 实测 81 帧 / 4 步约 21 分钟出片。
  *
- *   2. **成片落在 `results/<version>/` 下，不是 `result_dir` 直下**。
- *      官方在 `result_dir` 后面又拼了一层版本目录（`results/v15/xxx.mp4`），
- *      所以「跑完去 result_dir 里找 xxx.mp4」永远找不到——必须用
- *      `musetalkResultPath()` 拼出真实路径，别自己 `path.join(resultDir, name)`。
+ * 三个必须知道的坑：
+ *   1. GGUF 主模型不支持 LoRA merge —— WanVideoLoraSelect.merge_loras 必须 false。
+ *   2. T5 文本编码器必须是反量化后的 bf16 版本（umt5_xxl_bf16_dequant.safetensors），
+ *      fp8 scaled 版会被 WanVideoTextEncodeCached 直接拒绝。
+ *   3. num_frames 必须满足 4n+1（Wan 系 VAE 时间下采样率 4），由编排层按语音时长算好后传入。
  */
-export interface MusetalkYamlOptions {
-  /** 无声说话视频的绝对路径（最好是 inputs/ 下的无空格副本）。 */
-  videoPath: string
-  /** 16kHz 单声道 wav 的绝对路径。 */
-  audioPath: string
-  /** 成片文件名（只写名字，不要带目录——目录由 --result_dir 决定）。 */
-  resultName: string
+import type { ComfyNode, ComfyWorkflow } from '../types.js'
+
+/** 本机实测可用的模型文件名（都在 ComfyUI 的 models/ 对应子目录里）。 */
+export const INFINITETALK_MODELS = {
+  /** diffusion_models/ 主模型 */
+  mainModel: 'wan2.1-i2v-14b-480p-Q3_K_S.gguf',
+  /** diffusion_models/ InfiniteTalk patch（与主模型同目录，按文件名分别选） */
+  patchModel: 'Wan2_1-InfiniteTalk_Single_Q4_K_M.gguf',
+  /** loras/ lightx2v 4 步蒸馏 LoRA */
+  lora: 'lightx2v_I2V_14B_480p_cfg_step_distill_rank16_bf16.safetensors',
+  /** models/wav2vec2/ 音频编码器 */
+  wav2vec2: 'wav2vec2-chinese-base_fp16.safetensors',
+  /** models/vae/ */
+  vae: 'wan_2.1_vae.safetensors',
+  /** models/text_encoders/ 反量化 bf16 版 T5（fp8 scaled 会被拒绝） */
+  textEncoder: 'umt5_xxl_bf16_dequant.safetensors'
+} as const
+
+/** 默认正向/负向提示词：说话场景要的是干净口型，不要花哨运镜。 */
+export const DEFAULT_INFINITETALK_PROMPT =
+  'A person talking to the camera, natural facial expression, clear lipsync, high quality, realistic'
+export const DEFAULT_INFINITETALK_NEGATIVE =
+  'blurry, low quality, distorted face, watermark, text, deformed mouth'
+
+export interface InfiniteTalkWorkflowOptions {
+  /** 上传到 ComfyUI input 目录后的首帧图片文件名（LoadImage.image）。 */
+  imageName: string
+  /** 上传到 ComfyUI input 目录后的语音文件名（LoadAudio.audio）。 */
+  audioName: string
+  /** 生成帧数，必须 4n+1（由编排层 framesForSeconds 算好）。 */
+  frames: number
+  /** 帧率，默认 25（与实拍模板一致）。 */
+  fps?: number
+  /** 画面宽，默认 832。 */
+  width?: number
+  /** 画面高，默认 480。 */
+  height?: number
+  /** 采样随机种子。 */
+  seed?: number
+  /** VHS_VideoCombine 输出文件名前缀；成片落 ComfyUI output 目录。 */
+  filenamePrefix?: string
+  /** 正向提示词。 */
+  prompt?: string
+  /** 负向提示词。 */
+  negativePrompt?: string
 }
+
+const node = (class_type: string, inputs: Record<string, unknown>, metaTitle: string): ComfyNode => ({
+  class_type,
+  inputs,
+  _meta: { title: metaTitle }
+})
 
 /**
- * 生成 MuseTalk 的推理配置 yaml。
+ * 构造 14 节点 InfiniteTalk API 工作流。
  *
- * 结构必须是一层 `task_talk:` 再缩进两空格的三行——官方 `inference.py` 是
- * `for task_id in inference_config:` 遍历顶层键，每个键下面必须有 video_path /
- * audio_path，`result_name` 可选（不给就用 `--output_vid_name`）。
- * 顶层键名本身随意（`task_0` 也行），但 yaml 必须是 `task_talk:\n` 开头，
- * 单测按这个前缀断言，别的键名会被当成「结构变了」。
- *
- * 路径里的反斜杠一律换成 `/`：yaml 里反斜杠是转义符，`D:\Tools` 这种裸写会让
- * 解析器把 `\T` 当非法转义，或者被读成制表符，最后报「视频不存在」。
+ * 节点编号与实拍模板保持一致，便于对照排查；输入引用用 `["<id>", <slot>]` 形式。
+ * 编排层提交前会过一遍 reconcileWorkflow（用 object_info 剪输入、纠枚举），
+ * 且必须先上传图片/音频再取 object_info（60s 缓存会把刚上传的文件名误判非法）。
  */
-export function buildMusetalkYaml(options: MusetalkYamlOptions): string {
-  const slash = (value: string): string => value.replace(/\\/g, '/')
-  return (
-    'task_talk:\n' +
-    `  video_path: ${slash(options.videoPath)}\n` +
-    `  audio_path: ${slash(options.audioPath)}\n` +
-    `  result_name: ${slash(options.resultName)}\n`
-  )
-}
+export function buildInfiniteTalkWorkflow(options: InfiniteTalkWorkflowOptions): ComfyWorkflow {
+  const fps = options.fps ?? 25
+  const width = options.width ?? 832
+  const height = options.height ?? 480
+  const seed = options.seed ?? 42
+  const prompt = options.prompt ?? DEFAULT_INFINITETALK_PROMPT
+  const negative = options.negativePrompt ?? DEFAULT_INFINITETALK_NEGATIVE
+  const prefix = options.filenamePrefix ?? 'dsh_talking'
 
-export interface MusetalkArgsOptions {
-  /** 推理配置的相对路径（相对 musetalkDir，官方按 cwd 解析）。 */
-  configPath: string
-  unetModelPath: string
-  unetConfigPath: string
-  whisperDir: string
-  /** 结果目录，相对 musetalkDir（官方默认 `./results`）。 */
-  resultDir: string
-  /** ffmpeg 所在目录；MuseTalk 内部会自己拼 `ffmpeg` 可执行文件名。 */
-  ffmpegPath: string
-  /** 是否用 float16 推理；默认 true（6GB 显存上不开会 OOM）。 */
-  useFloat16?: boolean
-}
-
-/**
- * 组装 `python -m scripts.inference` 的参数。
- *
- * 一律用 `--flag value` 两项形式而不是 `--flag=value`：MuseTalk 用 argparse，
- * 两种都认，但 `--flag value` 更好读，单测也是按 `indexOf('--version') + 1` 取值的。
- *
- * `--use_float16` 是 `action='store_true'`，所以它**不带值**——写成
- * `--use_float16 true` 会让 argparse 把 `true` 当成下一个位置参数，直接报错。
- */
-export function buildMusetalkArgs(options: MusetalkArgsOptions): string[] {
-  const useFloat16 = options.useFloat16 ?? true
-  const args = [
-    '-m',
-    'scripts.inference',
-    '--inference_config',
-    options.configPath,
-    '--result_dir',
-    options.resultDir,
-    '--unet_model_path',
-    options.unetModelPath,
-    '--unet_config',
-    options.unetConfigPath,
-    '--whisper_dir',
-    options.whisperDir,
-    '--ffmpeg_path',
-    options.ffmpegPath,
-    '--version',
-    'v15',
-    // jaw 只重绘下颌+嘴部区域，比 default 更贴脸，边缘接缝也更小。
-    '--parsing_mode',
-    'jaw'
-  ]
-  if (useFloat16) args.push('--use_float16')
-  return args
-}
-
-/**
- * 成片的真实路径：`<resultDir>/<version>/<name>`。
- *
- * 不用 `path.join`：Windows 上它会产出反斜杠，而调用点要把这个相对路径
- * 拼进 `path.join(musetalkDir, ...)` 之外的地方（日志、错误提示），
- * 反斜杠混着正斜杠很难看；更要紧的是单测按正斜杠断言。
- *
- * `resultDir` 的尾斜杠/反斜杠要先削掉，否则会拼出 `results//v15/a.mp4`。
- */
-export function musetalkResultPath(resultDir: string, version: string, name: string): string {
-  const clean = (value: string): string => value.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-  const parts = [clean(resultDir), clean(version), clean(name)].filter((part) => part !== '')
-  return parts.join('/')
+  // motion_frame=9 是 InfiniteTalk 官方示例值：每次只驱动 9 帧嘴部运动，其余靠 i2v 延展。
+  // steps=4 + cfg=1.0 + shift=11 是 lightx2v 蒸馏 LoRA 的推荐配置（实拍已验证）。
+  return {
+    '1': node('LoadImage', { image: options.imageName }, '首帧图片'),
+    '2': node('LoadAudio', { audio: options.audioName }, '语音'),
+    '3': node('MultiTalkModelLoader', { model: INFINITETALK_MODELS.patchModel }, 'InfiniteTalk patch'),
+    '4': node(
+      'Wav2VecModelLoader',
+      {
+        model: INFINITETALK_MODELS.wav2vec2,
+        base_precision: 'fp16',
+        load_device: 'main_device'
+      },
+      '音频编码器'
+    ),
+    '5': node(
+      'WanVideoVAELoader',
+      {
+        model_name: INFINITETALK_MODELS.vae,
+        precision: 'fp16',
+        use_cpu_cache: false,
+        verbose: false
+      },
+      'VAE'
+    ),
+    '6': node(
+      'WanVideoBlockSwap',
+      {
+        blocks_to_swap: 30,
+        offload_img_emb: false,
+        offload_txt_emb: false,
+        use_non_blocking: false,
+        vace_blocks_to_swap: 0,
+        prefetch_blocks: 0,
+        block_swap_debug: false
+      },
+      '分块换出（6GB 显存关键）'
+    ),
+    '7': node(
+      'WanVideoLoraSelect',
+      {
+        lora: INFINITETALK_MODELS.lora,
+        strength: 1,
+        low_mem_load: true,
+        merge_loras: false
+      },
+      'lightx2v 4步 LoRA（GGUF 不可 merge）'
+    ),
+    '8': node(
+      'WanVideoModelLoader',
+      {
+        model: INFINITETALK_MODELS.mainModel,
+        base_precision: 'fp16_fast',
+        quantization: 'disabled',
+        load_device: 'offload_device',
+        attention_mode: 'sdpa',
+        block_swap_args: ['6', 0],
+        lora: ['7', 0],
+        multitalk_model: ['3', 0],
+        rms_norm_function: 'default'
+      },
+      'Wan2.1 I2V 14B GGUF 主模型'
+    ),
+    '9': node(
+      'WanVideoTextEncodeCached',
+      {
+        model_name: INFINITETALK_MODELS.textEncoder,
+        precision: 'bf16',
+        positive_prompt: prompt,
+        negative_prompt: negative,
+        quantization: 'disabled',
+        use_disk_cache: true,
+        device: 'gpu'
+      },
+      'T5 文本编码（反量化 bf16）'
+    ),
+    '10': node(
+      'MultiTalkWav2VecEmbeds',
+      {
+        wav2vec_model: ['4', 0],
+        audio_1: ['2', 0],
+        normalize_loudness: false,
+        num_frames: options.frames,
+        fps,
+        audio_scale: 1,
+        audio_cfg_scale: 1,
+        multi_audio_type: 'para'
+      },
+      '音频嵌入'
+    ),
+    '11': node(
+      'WanVideoImageToVideoMultiTalk',
+      {
+        vae: ['5', 0],
+        width,
+        height,
+        frame_window_size: options.frames,
+        motion_frame: 9,
+        force_offload: false,
+        colormatch: 'disabled',
+        start_image: ['1', 0],
+        mode: 'infinitetalk',
+        output_path: ''
+      },
+      '图生视频（端到端口型）'
+    ),
+    '12': node(
+      'WanVideoSampler',
+      {
+        model: ['8', 0],
+        image_embeds: ['11', 0],
+        steps: 4,
+        cfg: 1,
+        shift: 11,
+        seed,
+        force_offload: true,
+        scheduler: 'dpm++',
+        riflex_freq_index: 0,
+        text_embeds: ['9', 0],
+        multitalk_embeds: ['10', 0],
+        rope_function: 'comfy',
+        start_step: 0,
+        end_step: -1,
+        add_noise_to_samples: false
+      },
+      '采样（4步蒸馏）'
+    ),
+    '13': node(
+      'WanVideoDecode',
+      {
+        vae: ['5', 0],
+        samples: ['12', 0],
+        enable_vae_tiling: false,
+        tile_x: 272,
+        tile_y: 272,
+        tile_stride_x: 144,
+        tile_stride_y: 128
+      },
+      'VAE 解码'
+    ),
+    '14': node(
+      'VHS_VideoCombine',
+      {
+        images: ['13', 0],
+        frame_rate: fps,
+        loop_count: 0,
+        filename_prefix: prefix,
+        format: 'video/h264-mp4',
+        pingpong: false,
+        save_output: true,
+        audio: ['10', 1]
+      },
+      '合成 MP4（带音频）'
+    )
+  }
 }

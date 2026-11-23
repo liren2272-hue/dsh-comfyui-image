@@ -15,6 +15,8 @@ import { createGenerateImageTool, TOOL_NAME } from './tool.js'
 import { createGenerateVideoTool, VIDEO_TOOL_NAME } from './video/tool.js'
 import { createGenerateTalkingTool, TALKING_TOOL_NAME } from './talking/tool.js'
 import { createGenerateAudioTool, AUDIO_TOOL_NAME } from './audio/tool.js'
+import { createGenerateMusicTool, MUSIC_TOOL_NAME } from './music/tool.js'
+import { createTranscribeTool, TRANSCRIBE_TOOL_NAME } from './transcribe/tool.js'
 
 /** 插件名（同时是 loader entry 的默认 id）。 */
 export const name = 'dsh-comfyui-image'
@@ -57,7 +59,7 @@ interface ToolRegistryLike {
 export function apply(ctx: HostContextLike, config?: unknown): void {
   const tools = getToolRegistry(ctx)
   if (!tools) {
-    logWarn('拿不到 tools 服务，generate_image / generate_video / generate_talking_video / generate_audio 未注册（请在 profile 里确认插件依赖正常）。')
+    logWarn('拿不到 tools 服务，generate_image / generate_video / generate_talking_video / generate_audio / generate_music / transcribe_audio 未注册（请在 profile 里确认插件依赖正常）。')
     return
   }
 
@@ -65,12 +67,15 @@ export function apply(ctx: HostContextLike, config?: unknown): void {
   tools.register(createGenerateVideoTool(config))
   tools.register(createGenerateTalkingTool(config))
   tools.register(createGenerateAudioTool(config))
+  tools.register(createGenerateMusicTool(config))
+  tools.register(createTranscribeTool(config))
 
   // 启动时只打一行摘要：**不**在加载阶段发网络请求，避免拖慢 DSH 启动。
   const resolved = resolveConfig(config)
   logInfo(
     `v${PLUGIN_VERSION} 已就绪，注册工具 ${TOOL_NAME}（四种图片模式）+ ${VIDEO_TOOL_NAME}（文生视频/图生视频）+ ` +
-      `${TALKING_TOOL_NAME}（台词→语音→口型）+ ${AUDIO_TOOL_NAME}（台词→语音 wav，仅音频）。` +
+      `${TALKING_TOOL_NAME}（台词→语音→口型）+ ${AUDIO_TOOL_NAME}（台词→语音 wav，仅音频）+ ` +
+      `${MUSIC_TOOL_NAME}（无人声背景音乐）+ ${TRANSCRIBE_TOOL_NAME}（Whisper 语音识别）。` +
       `ComfyUI 地址：${resolved.baseUrl}` +
       (resolved.checkpoint ? `，底模：${resolved.checkpoint}` : '，底模：自动选择') +
       (resolved.videoModel ? `，视频模型：${resolved.videoModel}` : '，视频模型：自动选择') +
@@ -84,7 +89,7 @@ export function apply(ctx: HostContextLike, config?: unknown): void {
 /* ─────────────── 给本地测试用的再导出（不启动 DSH 也能单测） ─────────────── */
 export { ComfyUIClient } from './comfy/client.js'
 export { chooseCheckpoint, chooseRembgPlan, chooseSampler, declaredInputs, enumChoices, pickDeclaredKey } from './comfy/nodes.js'
-export { buildWorkflow, buildText2Img, buildImg2Img, buildInpaint, buildRemoveBackground, filenamePrefixFor, applyCustomWorkflow } from './comfy/workflows.js'
+export { buildWorkflow, buildText2Img, buildFluxText2Img, buildImg2Img, buildInpaint, buildRemoveBackground, filenamePrefixFor, applyCustomWorkflow } from './comfy/workflows.js'
 export { DEFAULTS, CONFIG_FILE, readConfigFile, resolveConfig, suggestSizeForCheckpoint, writeConfigFile } from './config.js'
 export { formatError, ImagePluginError } from './errors.js'
 export { guessImageMime, planOutputFile, randomSeed, timestampSlug } from './files.js'
@@ -111,8 +116,13 @@ export type { GenerateVideoArgs, NormalizedVideoRequest, VideoMode } from './vid
 export { videoExtensionOf, VIDEO_EXTS } from './files.js'
 
 /* ── 说话视频（generate_talking_video）── */
-export { buildMusetalkArgs, buildMusetalkYaml, musetalkResultPath } from './talking/lipsync.js'
-export { framesForSeconds, inferTalkingMode, MAX_SCRIPT_CHARS, MAX_TALKING_SECONDS, normalizeTalkingRequest, voiceLabelOf } from './talking/params.js'
+export {
+  buildInfiniteTalkWorkflow,
+  DEFAULT_INFINITETALK_NEGATIVE,
+  DEFAULT_INFINITETALK_PROMPT,
+  INFINITETALK_MODELS
+} from './talking/lipsync.js'
+export { autoResolutionForFrames, framesForSeconds, inferTalkingMode, MAX_SCRIPT_CHARS, MAX_TALKING_SECONDS, normalizeTalkingRequest, TALKING_HD_MAX_FRAMES, TALKING_HD_SIZE, TALKING_LOWRES_SIZE, voiceLabelOf } from './talking/params.js'
 export { lastMeaningfulLine, runProcess } from './talking/exec.js'
 export {
   edgeTtsArgs,
@@ -151,3 +161,30 @@ export {
 export type { AudioIndexTtsLang, AudioOutcome, AudioTtsEngine, GenerateAudioArgs, NormalizedAudioRequest } from './audio/types.js'
 export { AUDIO_INDEXTTS_LANGS, AUDIO_TTS_ENGINES, MAX_AUDIO_SCRIPT_CHARS, isAudioIndexTtsLang, isAudioTtsEngine } from './audio/types.js'
 export type { AudioToolResult } from './audio/result.js'
+
+/* ── 背景音乐（generate_music / ACE-Step 1.5 AIO）── */
+export { buildMusicWorkflow } from './music/workflows.js'
+export { normalizeMusicRequest, pickMusicRef, runMusicGeneration } from './music/runner.js'
+export { formatMusicResult, renderMusicFailureText, renderMusicResultText } from './music/result.js'
+export {
+  createGenerateMusicTool,
+  MUSIC_OUTPUT_SCHEMA,
+  MUSIC_PARAMETERS_SCHEMA,
+  MUSIC_TOOL_DESCRIPTION,
+  MUSIC_TOOL_NAME
+} from './music/tool.js'
+export type { GenerateMusicArgs, NormalizedMusicRequest } from './music/types.js'
+export type { MusicToolResult } from './music/result.js'
+
+/* ── 语音识别（transcribe_audio / Whisper）── */
+export { buildWhisperPlan, normalizeTranscribeRequest, runTranscription } from './transcribe/runner.js'
+export { formatTranscribeResult, renderTranscribeFailureText, renderTranscribeResultText } from './transcribe/result.js'
+export {
+  createTranscribeTool,
+  TRANSCRIBE_OUTPUT_SCHEMA,
+  TRANSCRIBE_PARAMETERS_SCHEMA,
+  TRANSCRIBE_TOOL_DESCRIPTION,
+  TRANSCRIBE_TOOL_NAME
+} from './transcribe/tool.js'
+export type { NormalizedTranscribeRequest, TranscribeArgs } from './transcribe/types.js'
+export type { TranscribeToolResult } from './transcribe/result.js'

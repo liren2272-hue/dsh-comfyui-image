@@ -30,8 +30,21 @@ export const NODE_IDS = {
   loadImage: '8',
   loadMask: '9',
   vaeEncode: '10',
-  inpaintEncode: '10'
+  inpaintEncode: '10',
+  // Flux 分体加载（GGUF unet + DualCLIP + 独立 VAE）独占的节点 id
+  unet: '11',
+  clip: '12',
+  vae: '13',
+  fluxLatent: '14'
 } as const
+
+/** Flux 分体加载资产组（checkpoints 为空时由 nodes.chooseCheckpoint 探测返回）。 */
+export interface FluxAssets {
+  unet: string
+  clip: string
+  clip2: string
+  vae: string
+}
 
 /** 构建工作流所需要的全部输入（都已在别的层解析完毕）。 */
 export interface WorkflowFacts {
@@ -39,6 +52,8 @@ export interface WorkflowFacts {
   config: ResolvedConfig
   /** 已确定的底模文件名。 */
   checkpoint: string
+  /** Flux 分体加载资产组（mode=text2img 且无 checkpoint 时使用）。 */
+  flux?: FluxAssets
   /** 已校验过的采样器 / 调度器。 */
   samplerName: string
   scheduler: string
@@ -60,6 +75,8 @@ export interface BuiltWorkflow {
   mode: GenerateMode
   /** 产出图片的节点 id。 */
   outputNodeId: string
+  /** 后端标记：走 Flux 分体加载时为 'flux'。 */
+  backend?: 'flux'
 }
 
 function checkpointLoader(checkpoint: string): ComfyNode {
@@ -136,6 +153,68 @@ export function buildText2Img(facts: WorkflowFacts): BuiltWorkflow {
     [NODE_IDS.save]: saveNode(facts)
   }
   return { workflow, mode: 'text2img', outputNodeId: NODE_IDS.save }
+}
+
+/**
+ * 构建 Flux 分体加载的 text2img 工作流。
+ *
+ * Flux 不走 CheckpointLoaderSimple（那个只认 models/checkpoints 下的单文件），
+ * 而是：GGUF unet 出 MODEL、DualCLIPLoader 出 CLIP、独立 VAELoader 出 VAE、
+ * EmptySD3LatentImage 出潜空间。facts.flux 由 nodes.chooseCheckpoint 在
+ * checkpoints 为空时探测并返回 { unet, clip, clip2, vae }。
+ */
+export function buildFluxText2Img(facts: WorkflowFacts): BuiltWorkflow {
+  const flux = facts.flux
+  if (!flux || !flux.unet || !flux.clip || !flux.clip2 || !flux.vae) {
+    throw new Error('内部错误：mode=text2img 走 Flux 需要探测到的 Flux 资产组（unet/clip/clip2/vae），但构建工作流时没有拿到。')
+  }
+  const workflow: ComfyWorkflow = {
+    [NODE_IDS.unet]: {
+      class_type: 'UnetLoaderGGUF',
+      inputs: { unet_name: flux.unet },
+      _meta: { title: 'Flux unet（GGUF）' }
+    },
+    [NODE_IDS.clip]: {
+      class_type: 'DualCLIPLoader',
+      inputs: { clip_name1: flux.clip, clip_name2: flux.clip2, type: 'flux' },
+      _meta: { title: 'Flux 双文本编码器' }
+    },
+    [NODE_IDS.vae]: {
+      class_type: 'VAELoader',
+      inputs: { vae_name: flux.vae },
+      _meta: { title: 'Flux VAE' }
+    },
+    [NODE_IDS.positive]: clipEncode(facts.request.prompt, [NODE_IDS.clip, 0], '正向提示词'),
+    [NODE_IDS.negative]: clipEncode(facts.request.negativePrompt, [NODE_IDS.clip, 0], '负向提示词'),
+    [NODE_IDS.fluxLatent]: {
+      class_type: 'EmptySD3LatentImage',
+      inputs: { width: facts.request.width, height: facts.request.height, batch_size: 1 },
+      _meta: { title: '空潜空间' }
+    },
+    [NODE_IDS.sampler]: {
+      class_type: 'KSampler',
+      inputs: {
+        seed: facts.request.seed,
+        steps: facts.request.steps,
+        cfg: facts.request.cfgScale,
+        sampler_name: facts.samplerName,
+        scheduler: facts.scheduler,
+        denoise: 1.0,
+        model: [NODE_IDS.unet, 0],
+        positive: [NODE_IDS.positive, 0],
+        negative: [NODE_IDS.negative, 0],
+        latent_image: [NODE_IDS.fluxLatent, 0]
+      },
+      _meta: { title: '采样器' }
+    },
+    [NODE_IDS.decode]: {
+      class_type: 'VAEDecode',
+      inputs: { samples: [NODE_IDS.sampler, 0], vae: [NODE_IDS.vae, 0] },
+      _meta: { title: 'VAE 解码' }
+    },
+    [NODE_IDS.save]: saveNode(facts)
+  }
+  return { workflow, mode: 'text2img', outputNodeId: NODE_IDS.save, backend: 'flux' }
 }
 
 /** 构建 img2img 工作流（denoise = strength）。 */
@@ -243,6 +322,8 @@ export function buildRemoveBackground(facts: WorkflowFacts): BuiltWorkflow {
 export function buildWorkflow(facts: WorkflowFacts): BuiltWorkflow {
   switch (facts.request.mode) {
     case 'text2img':
+      // checkpoints 为空但探到 Flux 资产时走分体加载（facts.flux 由 nodes.chooseCheckpoint 填）
+      if (facts.flux && !facts.checkpoint) return buildFluxText2Img(facts)
       return buildText2Img(facts)
     case 'img2img':
       return buildImg2Img(facts)

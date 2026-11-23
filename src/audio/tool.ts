@@ -1,5 +1,5 @@
 /**
- * 对外工具契约：`generate_audio`（台词 → 语音 wav，仅音频，不碰 ComfyUI 画面、不碰 MuseTalk 口型）。
+ * 对外工具契约：`generate_audio`（台词 → 语音 wav，仅音频，不碰 ComfyUI 画面、不碰 InfiniteTalk 口型）。
  *
  * 为什么单独做一个工具：generate_talking_video 的链路是「语音 → 画面 → 对口型」，
  * 只为了配音跑完整链路要浪费几分钟 GPU 时间。这个工具只做 TTS 合成，秒出 wav。
@@ -15,10 +15,10 @@ import { runAudioGeneration } from './runner.js'
 import { formatAudioResult, renderAudioFailureText, type AudioToolResult } from './result.js'
 import type { GenerateAudioArgs } from './types.js'
 
-export const AUDIO_TOOL_NAME = 'generate_audio'
+export const AUDIO_TOOL_NAME = 'comfyui_generate_audio'
 
 export const AUDIO_TOOL_DESCRIPTION = [
-  '只生成语音音频（wav，16kHz 单声道），不碰 ComfyUI 画面、不碰 MuseTalk 口型。',
+  '只生成语音音频（wav，16kHz 单声道），不碰 ComfyUI 画面、不碰 InfiniteTalk 口型。',
   '适合「只要配音、不要视频」的场景，避免跑完整 text2talking / video2talking 链路浪费 GPU 时间。',
   '',
   '音色 tts：',
@@ -159,7 +159,6 @@ export function createGenerateAudioTool(pluginConfig?: unknown): Record<string, 
             edgeRate: config.edgeRate,
             indexttsPython: config.indexttsPython,
             indexttsDir: config.indexttsDir,
-            musetalkPython: config.musetalkPython,
             ffmpeg: config.ffmpeg,
             ffprobe: config.ffprobe,
             talkingTimeoutMs: config.talkingTimeoutMs,

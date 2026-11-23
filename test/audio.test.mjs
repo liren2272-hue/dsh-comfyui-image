@@ -612,7 +612,6 @@ function audioConfig(overrides = {}) {
     edgeRate: base.edgeRate,
     indexttsPython: base.indexttsPython,
     indexttsDir: base.indexttsDir,
-    musetalkPython: base.musetalkPython,
     ffmpeg: base.ffmpeg,
     ffprobe: base.ffprobe,
     talkingTimeoutMs: base.talkingTimeoutMs,

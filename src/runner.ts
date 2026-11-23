@@ -27,7 +27,7 @@ import { chooseCheckpoint, chooseRembgPlan, chooseSampler, type RembgPlan } from
 import { applyCustomWorkflow, buildWorkflow, filenamePrefixFor, type BuiltWorkflow } from './comfy/workflows.js'
 
 /** 插件版本（写进元数据，便于以后排查）。 */
-export const PLUGIN_VERSION = '0.5.0'
+export const PLUGIN_VERSION = '0.7.0'
 
 /** 跑一次生成所需的全部输入。 */
 export interface RunOptions {

@@ -18,7 +18,7 @@ import { runGeneration } from './runner.js'
 import { formatResult, renderFailureText, type ImageToolResult } from './result.js'
 
 /** 工具名。需求书建议的就是它。 */
-export const TOOL_NAME = 'generate_image'
+export const TOOL_NAME = 'comfyui_generate_image'
 
 /** 给模型看的工具说明。写得啰嗦一点是刻意的：Agent 只看这一处就能用对。 */
 export const TOOL_DESCRIPTION = [

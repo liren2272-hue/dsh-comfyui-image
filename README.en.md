@@ -16,7 +16,7 @@ the backend talks to a **local ComfyUI** plus your machine's TTS and lip-sync to
 |---|---|
 | `comfyui_generate_image` | Text-to-image, image-to-image, inpainting and background removal in one |
 | `comfyui_generate_video` | Text-to-video and image-to-video (Wan2.2 TI2V-5B) |
-| `comfyui_generate_talking_video` | Script → TTS → speaking shot → MuseTalk lip-sync |
+| `comfyui_generate_talking_video` | Script → TTS → first frame → InfiniteTalk end-to-end lip-sync |
 | `comfyui_generate_audio` | Script → 16 kHz wav, **audio only, no picture** |
 
 It depends on no external commercial API and has **zero third-party runtime dependencies**
@@ -93,14 +93,16 @@ takes about 3.5 minutes here. See [docs/PARAMS.md](./docs/PARAMS.md).
 
 | Mode `mode` | Input | What it does |
 |---|---|---|
-| `text2talking` | `script` | Text → generate a portrait → make it speak → lip-sync (slowest, ~8–12 min) |
-| `image2talking` | `script` + `input_image` | The person in a photo speaks (~6–9 min) |
-| `video2talking` | `script` + `input_video` | Re-lip-sync / re-voice an existing clip (fastest, ~3–6 min) |
+| `text2talking` | `script` | Text-to-image first frame → TTS → InfiniteTalk (~20+ min) |
+| `image2talking` | `script` + `input_image` | Image as first frame → TTS → InfiniteTalk (~20 min) |
+| `video2talking` | `script` + `input_video` | Extract first frame → InfiniteTalk regenerates; original motion is not kept (~20 min) |
 
-It runs in three stages: **TTS (IndexTTS-2 voice cloning / edge-tts) → speaking shot (ComfyUI) →
-lip-sync (MuseTalk 1.5)**. The voice is determined entirely by the 3–15 s reference clip that
-`spk_audio_prompt` points at; `emo_vector` / `emo_alpha` / `emo_audio_prompt` add emotion.
-Full write-up (why three stages, the pitfalls, the limits) in [docs/TALKING.md](./docs/TALKING.md).
+It generates end to end in one pass: **TTS (IndexTTS-2 voice cloning / edge-tts) → first frame →
+InfiniteTalk generates the lip-synced video**. There is no "silent video + paste the mouth back"
+two-step, hence no mouth-edge softening or patch blur. The voice is determined entirely by the
+3–15 s reference clip that `spk_audio_prompt` points at; `emo_vector` / `emo_alpha` /
+`emo_audio_prompt` add emotion. Full write-up (the three modes, model checklist, pitfalls, limits)
+in [docs/TALKING.md](./docs/TALKING.md).
 
 ### `comfyui_generate_audio` — audio only
 
@@ -130,8 +132,8 @@ The four tools have **cumulative** requirements — if you only use images, only
 |---|---|
 | `comfyui_generate_image` | A checkpoint in `models/checkpoints/` |
 | `comfyui_generate_video` | Wan2.2 TI2V-5B (in `models/diffusion_models/` or `unet/`; GGUF works) + `umt5_xxl` text encoder + `Wan2.2_VAE` + a ComfyUI build with the `Wan22ImageToVideoLatent` / `ModelSamplingSD3` / `CreateVideo` / `SaveVideo` nodes |
-| `comfyui_generate_talking_video` | An IndexTTS-2 checkout plus venv and a reference clip; a MuseTalk 1.5 checkout plus venv; `ffmpeg` / `ffprobe` (or point `ffmpegBin` at them) |
-| `comfyui_generate_audio` | Only the TTS part (no ComfyUI, no MuseTalk) |
+| `comfyui_generate_talking_video` | An IndexTTS-2 checkout plus venv and a reference clip; ComfyUI-WanVideoWrapper plus the six InfiniteTalk models (see TALKING.md); `ffmpeg` / `ffprobe` (or point `ffmpegBin` at them) |
+| `comfyui_generate_audio` | Only the TTS part (no ComfyUI, no InfiniteTalk models) |
 
 > Background removal is the **only** image feature that needs extra nodes. Install **any one** of these
 > (the plugin picks the best available automatically, in this order):
@@ -224,7 +226,7 @@ git clone <this repository> dsh-comfyui-image
 cd dsh-comfyui-image
 npm install          # installs only typescript and @types/node (for development)
 npm run build        # only needed if you changed src/; lib/ is already committed
-npm test             # 160 tests, ships with a mock ComfyUI, no real ComfyUI needed
+npm test             # 164 tests, ships with a mock ComfyUI, no real ComfyUI needed
 ```
 
 After that, just link it into the profile following Option B / C.
@@ -437,14 +439,14 @@ src/
   talking/            Script → speech → speaking shot → lip-sync
     tts.ts            TTS command building (IndexTTS-2 / edge-tts) + wav normalization + ffprobe duration
     exec.ts           Subprocess execution (never rejects; timeout / abort / error all fold into an exit code)
-    lipsync.ts        MuseTalk yaml and argv building
+    lipsync.ts        InfiniteTalk workflow and model-path building
     params.ts         Script length, mode inference, width/height alignment, voice label
     runner.ts         Three-stage chain + intermediate work dir + metadata
     tool.ts / result.ts / types.ts
   audio/              Audio only (reuses talking/tts.ts, never touches the picture)
     runner.ts / tool.ts / result.ts / tts.ts / types.ts
 lib/                  TypeScript build output (**committed on purpose**: it runs without TS installed)
-test/                 160 tests + a mock ComfyUI (real PNG encode/decode, real uploads, real polling, real error paths, fake mp4 and fake TTS/MuseTalk subprocesses)
+test/                 164 tests + a mock ComfyUI (real PNG encode/decode, real uploads, real polling, real error paths, fake mp4 and fake TTS/InfiniteTalk subprocesses)
 scripts/run-tests.mjs Test entry point
 scripts/doctor.mjs    Self-check script
 docs/                 install / config / usage / params / talking / audio / FAQ / roadmap
@@ -463,7 +465,7 @@ and the **execution layer** (`*/runner.ts` + `comfy/`) can be changed freely —
 npm install
 npm run build      # tsc → lib/
 npm run typecheck  # check only, no output
-npm test           # 160 tests (ships with a mock ComfyUI + fake TTS/MuseTalk subprocesses)
+npm test           # 164 tests (ships with a mock ComfyUI + fake TTS/InfiniteTalk subprocesses)
 npm run doctor     # health-check against a real ComfyUI
 ```
 
@@ -486,7 +488,7 @@ Plans beyond V1 (upscaling / outpainting / batching / multiple backends / consis
 | [docs/INSTALL.en.md](./docs/INSTALL.en.md) | Installation guide: ComfyUI (including Windows / Intel GPUs) + plugin installation + background-removal nodes |
 | [docs/CONFIG.md](./docs/CONFIG.md) | Configuration: the four-layer priority, the complete key table, environment variables, examples |
 | [docs/USAGE.md](./docs/USAGE.md) | Usage examples: the four image modes + reproduction / fine-tuning + custom workflows + audio only |
-| [docs/TALKING.md](./docs/TALKING.md) | Talking video: why three stages, the three modes, how to install TTS / speaking shot / MuseTalk, measured timings, pitfalls |
+| [docs/TALKING.md](./docs/TALKING.md) | Talking video: end-to-end flow, the three modes, how to install TTS / InfiniteTalk models, measured timings, pitfalls |
 | [docs/AUDIO.md](./docs/AUDIO.md) | Audio only: parameters, the two TTS engines, expressing emotion with IndexTTS, output and limits |
 | [docs/EMOTION_TTS_SELECTION.md](./docs/EMOTION_TTS_SELECTION.md) | Choosing an emotional TTS: IndexTTS-2 vs edge-tts, capabilities and trade-offs |
 | [docs/PARAMS.md](./docs/PARAMS.md) | Item-by-item documentation of the tool parameters and the output structure |
